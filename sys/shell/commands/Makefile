@@ -1,6 +1,6 @@
 MODULE = shell_commands
 
-SRC = shell_commands.c sc_sys.c
+SRC = shell_commands.c sc_sys.c sc_dump.c
 
 ifneq (,$(filter mci,$(USEMODULE)))
   SRC += sc_disk.c

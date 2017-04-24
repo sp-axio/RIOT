@@ -25,6 +25,8 @@
 
 extern int _reboot_handler(int argc, char **argv);
 
+extern int _cmd_dump(int argc, char **argv);
+
 #ifdef MODULE_CONFIG
 extern int _id_handler(int argc, char **argv);
 #endif
@@ -135,6 +137,7 @@ extern int _ntpdate(int argc, char **argv);
 
 const shell_command_t _shell_command_list[] = {
     {"reboot", "Reboot the node", _reboot_handler},
+    {"dump",   "Dump Memory", _cmd_dump},
 #ifdef MODULE_CONFIG
     {"id", "Gets or sets the node's id.", _id_handler},
 #endif
