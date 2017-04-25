@@ -29,12 +29,22 @@ BOARD_BLACKLIST := nrf52dk
 USEPKG += nanocoap
 # Required by nanocoap, but only due to issue #5959.
 USEMODULE += posix
-
+USEMODULE += xbee
+USEMODULE += gnrc_netif
+USEMODULE += gnrc_txtsnd
+USEMODULE += gnrc_netdev
+USEMODULE += gnrc_ipv6
+USEMODULE += gnrc_ndp
+USEMODULE += gnrc_sixlowpan_default
 # Include packages that pull up and auto-init the link layer.
 # NOTE: 6LoWPAN will be included if IEEE802.15.4 devices are present
 USEMODULE += gnrc_netdev_default
 USEMODULE += auto_init_gnrc_netif
 # Specify the mandatory networking modules
+USEMODULE += gnrc_ipv6_router_default
+USEMODULE += gnrc_udp
+
+USEMODULE += gnrc_pktdump
 USEMODULE += gnrc_ipv6_default
 USEMODULE += gnrc_sock_udp
 USEMODULE += gcoap
@@ -49,6 +59,11 @@ USEMODULE += shell
 USEMODULE += shell_commands
 USEMODULE += ps
 
+XBEE_UART ?= "0"
+
+## export UART to params file
+CFLAGS += -DXBEE_UART=$(XBEE_UART)
+CFLAGS += -DXBEE_PARAM_UART=$(XBEE_UART)
 # Comment this out to disable code in RIOT that does safety checking
 # which is not needed in a production environment but helps in the
 # development process:

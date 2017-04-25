@@ -24,6 +24,8 @@
 #include "net/gcoap.h"
 #include "kernel_types.h"
 #include "shell.h"
+#include "net/gnrc/pktdump.h"
+#include "net/gnrc.h"
 
 #define MAIN_QUEUE_SIZE (4)
 static msg_t _main_msg_queue[MAIN_QUEUE_SIZE];

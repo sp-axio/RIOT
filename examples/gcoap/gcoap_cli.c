@@ -100,7 +100,12 @@ static size_t _send(uint8_t *buf, size_t len, char *addr_str, char *port_str)
     sock_udp_ep_t remote;
 
     remote.family = AF_INET6;
-    remote.netif  = SOCK_ADDR_ANY_NETIF;
+    //remote.netif  = SOCK_ADDR_ANY_NETIF;
+	kernel_pid_t ifs[GNRC_NETIF_NUMOF];
+	size_t ifnum = gnrc_netif_get(ifs);
+	if (ifnum == 1) {
+		remote.netif = ifs[0];
+	}
 
     /* parse destination address */
     if (ipv6_addr_from_str(&addr, addr_str) == NULL) {
