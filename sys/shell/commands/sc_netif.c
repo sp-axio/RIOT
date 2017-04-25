@@ -779,6 +779,9 @@ static int _netif_set(char *cmd_name, kernel_pid_t dev, char *key, char *value)
     else if (strcmp("addr_long", key) == 0) {
         return _netif_set_addr(dev, NETOPT_ADDRESS_LONG, value);
     }
+	else if (strcmp("dest_addr", key) == 0) {
+		return _netif_set_addr(dev, NETOPT_DST_ADDRESS, value);
+	}
     else if ((strcmp("channel", key) == 0) || (strcmp("chan", key) == 0)) {
         return _netif_set_u16(dev, NETOPT_CHANNEL, value);
     }

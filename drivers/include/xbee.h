@@ -60,6 +60,7 @@ extern "C" {
  * @brief   Maximal possible size of a TX header
  */
 #define XBEE_MAX_TXHDR_LENGTH       (14U)
+#define XBEE2_MAX_TXHDR_LENGTH       (17U)
 
 /**
  * @brief   Default protocol for data that is coming in
@@ -142,6 +143,7 @@ typedef struct {
     uint8_t addr_flags;                 /**< address flags as defined above */
     uint8_t addr_short[2];              /**< onw 802.15.4 short address */
     eui64_t addr_long;                  /**< own 802.15.4 long address */
+	eui64_t dest_addr_long;         
     /* general variables for the UART RX state machine */
     xbee_rx_state_t int_state;          /**< current state if the UART RX FSM */
     uint16_t int_size;                  /**< temporary space for parsing the
@@ -158,6 +160,7 @@ typedef struct {
     uint16_t resp_count;                /**< counter for ongoing transmission */
     uint16_t resp_limit;                /**< size RESP frame in transferred */
     /* buffer and synchronization for incoming network packets */
+    uint8_t tx_buf[XBEE_MAX_PKT_LENGTH];/**< command data buffer */
     uint8_t rx_buf[XBEE_MAX_PKT_LENGTH];/**< receiving data buffer */
     uint16_t rx_count;                  /**< counter for ongoing transmission */
     uint16_t rx_limit;                  /**< size RX frame transferred */

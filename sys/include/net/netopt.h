@@ -248,6 +248,7 @@ typedef enum {
      * @note    Interfaces are not meant to respond to that.
      */
     NETOPT_NUMOF,
+	NETOPT_DST_ADDRESS,
 } netopt_t;
 
 /**

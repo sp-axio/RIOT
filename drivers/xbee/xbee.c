@@ -32,6 +32,7 @@
 
 #define ENABLE_DEBUG    (0)
 #include "debug.h"
+#define XBEE2 (1) 
 
 /**
  * @brief   Internal driver event type when RX is finished
@@ -65,8 +66,13 @@
 #define API_ID_AT                   (0x08)  /**< AT command request frame */
 #define API_ID_AT_QUEUE             (0x09)  /**< queued AT command frame */
 #define API_ID_AT_RESP              (0x88)  /**< AT command response frame */
+#ifndef XBEE2
 #define API_ID_TX_LONG_ADDR         (0x00)  /**< TX frame (long address) */
 #define API_ID_TX_SHORT_ADDR        (0x01)  /**< TX frame (short address) */
+#else
+#define API_ID_TX_REQ               (0x10)  /**< TX frame */
+#define API_ID_RX_DATA              (0x90)  /**< RX frame  */
+#endif
 #define API_ID_TX_RESP              (0x89)  /**< TX response frame */
 #define API_ID_RX_LONG_ADDR         (0x80)  /**< RX frame (long address) */
 #define API_ID_RX_SHORT_ADDR        (0x81)  /**< RX frame (short address) */
@@ -103,12 +109,14 @@ static uint8_t _cksum(size_t offset, uint8_t *buf, size_t size)
     return res;
 }
 
+#ifndef XBEE2
 static void _at_cmd(xbee_t *dev, const char *cmd)
 {
     DEBUG("[xbee] AT_CMD: %s\n", cmd);
 
     uart_write(dev->p.uart, (uint8_t *)cmd, strlen(cmd));
 }
+#endif
 
 static void isr_resp_timeout(void *arg)
 {
@@ -200,7 +208,8 @@ static void _rx_cb(void *arg, uint8_t c)
             dev->int_state = XBEE_INT_STATE_TYPE;
             break;
         case XBEE_INT_STATE_TYPE:
-            if (c == API_ID_RX_SHORT_ADDR || c == API_ID_RX_LONG_ADDR) {
+            if (c == API_ID_RX_SHORT_ADDR || c == API_ID_RX_LONG_ADDR 
+					|| c == API_ID_RX_DATA) {
                 /* in case old data was not processed, ignore incoming data */
                 if (dev->rx_count != 0) {
                     dev->int_state = XBEE_INT_STATE_IDLE;
@@ -317,6 +326,74 @@ static int _set_addr(xbee_t *dev, uint8_t *val, size_t len)
     return -ECANCELED;
 }
 
+#ifdef XBEE2
+static int _get_dest_addr(xbee_t *dev, uint8_t *val, size_t len)
+{
+	uint8_t cmd[2];
+	resp_t resp;
+
+	if (len < IEEE802154_LONG_ADDRESS_LEN) {
+		return -EOVERFLOW;
+	}
+
+	/* read 4 high byte - AT command: DH*/
+	cmd[0] = 'D';
+	cmd[1] = 'H';
+	_api_at_cmd(dev, cmd, 2, &resp);
+	if (resp.status == 0) {
+//        DEBUG("[xbee] DH: %04X\n", resp.data);
+		memcpy(val, resp.data, 4);
+	}
+	else {
+		return -ECANCELED;
+	}
+	/* read next 4 byte - AT command: DL */
+	cmd[1] = 'L';
+	_api_at_cmd(dev, cmd, 2, &resp);
+	if (resp.status == 0) {
+		memcpy(val + 4, resp.data, 4);
+		DEBUG("[xbee] Destnation Address:");
+		for(int i=0; i<8; i++){
+			printf("%02X ", val[i]);
+		}
+		printf("\n");
+		return IEEE802154_LONG_ADDRESS_LEN;
+	}
+	return -ECANCELED;
+}
+static int _set_dest_addr(xbee_t *dev, uint8_t *val, size_t len)
+{
+	uint8_t cmd[6];
+	resp_t resp;
+
+	if (len < IEEE802154_LONG_ADDRESS_LEN) {
+		return -EOVERFLOW;
+	}
+
+	/* read 4 high byte - AT command: DH*/
+	cmd[0] = 'D';
+	cmd[1] = 'H';
+	memcpy(cmd + 2, val, 4);
+	_api_at_cmd(dev, cmd, 6, &resp);
+	if (resp.status == 0) {
+		DEBUG("[xbee] set DH success\n");
+	}
+	else {
+		return -ECANCELED;
+	}
+	/* read next 4 byte - AT command: SL */
+	cmd[1] = 'L';
+	memcpy(cmd + 2, val + 4, 4);
+	_api_at_cmd(dev, cmd, 6, &resp);
+	if (resp.status == 0) {
+		DEBUG("[xbee] set DL success\n");
+		_get_dest_addr(dev, val, len);
+		return IEEE802154_LONG_ADDRESS_LEN;
+	}
+	return -ECANCELED;
+}
+#endif
+
 static int _set_addr_len(xbee_t *dev, uint16_t *val, size_t len)
 {
     if (len != sizeof(uint16_t)) {
@@ -366,6 +443,7 @@ static int _get_channel(xbee_t *dev, uint8_t *val, size_t max)
     return -ECANCELED;
 }
 
+#ifndef XBEE2
 static int _set_channel(xbee_t *dev, uint8_t *val, size_t len)
 {
     uint8_t cmd[3];
@@ -383,6 +461,54 @@ static int _set_channel(xbee_t *dev, uint8_t *val, size_t len)
     }
     return -EINVAL;
 }
+#endif
+
+#ifdef XBEE2
+static int _get_scan_channel(xbee_t *dev, uint8_t *val, size_t max)
+{
+    uint8_t cmd[2];
+    resp_t resp;
+
+    if (max < 2) {
+        return -EOVERFLOW;
+    }
+    cmd[0] = 'S';
+    cmd[1] = 'C';
+    _api_at_cmd(dev, cmd, 2, &resp);
+    if (resp.status == 0) {
+        val[0] = resp.data[0];
+        val[1] = resp.data[1];
+		DEBUG("[xbee]: SC:[\n");
+		for(int i=0; i<resp.data_len; i++){
+			printf("%02X ", resp.data[i]);
+		}
+		printf("]\n");
+        return 2;
+    }
+    return -ECANCELED;
+}
+
+static int _set_scan_channel(xbee_t *dev, uint8_t *val, size_t len)
+{
+    uint8_t cmd[4];
+    resp_t resp;
+
+    if (len != 2) {
+        return -EINVAL;
+    }
+
+	DEBUG("[xbee]: set scan channel:[0x%02X%02X]\n",  val[1], val[0]);
+    cmd[0] = 'S';
+    cmd[1] = 'C';
+    cmd[2] = val[1];
+    cmd[3] = val[0];
+    _api_at_cmd(dev, cmd, 4, &resp);
+    if (resp.status == 0) {
+        return 2;
+    }
+    return -EINVAL;
+}
+#endif
 
 static int _get_panid(xbee_t *dev, uint8_t *val, size_t max)
 {
@@ -403,6 +529,7 @@ static int _get_panid(xbee_t *dev, uint8_t *val, size_t max)
     return -ECANCELED;
 }
 
+#ifndef XBEE2
 static int _set_panid(xbee_t *dev, uint8_t *val, size_t len)
 {
     uint8_t cmd[4];
@@ -421,6 +548,7 @@ static int _set_panid(xbee_t *dev, uint8_t *val, size_t len)
     }
     return -EINVAL;
 }
+#endif
 
 #ifdef MODULE_XBEE_ENCRYPTION
 static int _set_encryption(xbee_t *dev, uint8_t *val)
@@ -494,6 +622,7 @@ void xbee_setup(xbee_t *dev, const xbee_params_t *params)
     /* we initialize the UART later, since we can not handle interrupts, yet */
 }
 
+#ifndef XBEE2 
 int xbee_build_hdr(xbee_t *dev, uint8_t *xhdr, size_t payload_len,
                    void *dst_addr, size_t addr_len)
 {
@@ -526,6 +655,34 @@ int xbee_build_hdr(xbee_t *dev, uint8_t *xhdr, size_t payload_len,
 
     return (int)(addr_len + 6);
 }
+#else
+int xbee_build_hdr(xbee_t *dev, uint8_t *xhdr, size_t payload_len,
+                   void *dst_addr, size_t addr_len)
+{
+	char long_addr[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF};
+	char short_addr[8] = {0xFF, 0xFF};
+    /* make sure payload fits into a packet */
+    if (payload_len > XBEE_MAX_PAYLOAD_LENGTH) {
+        return -EOVERFLOW;
+    }
+
+    /* set start delimiter, configure address and set options. Also make sure,
+     * that the link layer address is of known length */
+    xhdr[0] = API_START_DELIMITER;
+	xhdr[3] = API_ID_TX_REQ;
+    xhdr[4] = 1; 
+	xhdr[16] = dev->options;
+
+    /* finally configure the packet size and copy the actual dst address */
+    uint16_t size = (uint16_t)(payload_len + 14);
+    xhdr[1] = (uint8_t)(size >> 8);
+    xhdr[2] = (uint8_t)(size & 0xff);
+    memcpy(&xhdr[5], long_addr, IEEE802154_LONG_ADDRESS_LEN);
+    memcpy(&xhdr[13], short_addr, IEEE802154_SHORT_ADDRESS_LEN);
+
+    return (int)(XBEE2_MAX_TXHDR_LENGTH);
+}
+#endif
 
 int xbee_parse_hdr(xbee_t *dev, const uint8_t *xhdr, xbee_l2hdr_t *l2hdr)
 {
@@ -540,16 +697,25 @@ int xbee_parse_hdr(xbee_t *dev, const uint8_t *xhdr, xbee_l2hdr_t *l2hdr)
     else if (xhdr[0] == API_ID_RX_LONG_ADDR) {
         alen = IEEE802154_LONG_ADDRESS_LEN;
     }
+	else if (xhdr[0] == API_ID_RX_DATA ){
+        alen = IEEE802154_LONG_ADDRESS_LEN;
+	}
     else {
         return -ENOMSG;
     }
 
     /* copy the actual SRC address and the RSSI value */
     memcpy(l2hdr->src_addr, &xhdr[1], alen);
-    l2hdr->rssi = xhdr[1 + alen];
+	if (xhdr[0] != API_ID_RX_DATA ){
+		l2hdr->rssi = xhdr[1 + alen];
+	}
 
     /* copy the destination address */
-    l2hdr->bcast = (xhdr[2 + alen] & OPT_BCAST_ADDR) ? 1 : 0;
+	if (xhdr[0] == API_ID_RX_DATA ){
+		l2hdr->bcast = (xhdr[3 + alen] & OPT_BCAST_ADDR) ? 1 : 0;
+	}else{
+		l2hdr->bcast = (xhdr[2 + alen] & OPT_BCAST_ADDR) ? 1 : 0;
+	}
     if (l2hdr->bcast) {
         memset(l2hdr->dst_addr, 0xff, alen);
     }
@@ -563,7 +729,10 @@ int xbee_parse_hdr(xbee_t *dev, const uint8_t *xhdr, xbee_l2hdr_t *l2hdr)
     }
     l2hdr->addr_len = alen;
 
-    return (int)(alen + 3);
+	if (xhdr[0] == API_ID_RX_DATA)
+		return (int)(alen + 4);
+	else
+		return (int)(alen + 3);
 }
 
 int xbee_init(netdev2_t *dev)
@@ -590,6 +759,7 @@ int xbee_init(netdev2_t *dev)
         xtimer_usleep(RESET_DELAY);
         gpio_set(xbee->p.pin_reset);
     }
+#ifndef XBEE2
     /* put the XBee device into command mode */
     xtimer_usleep(ENTER_CMD_MODE_DELAY);
     _at_cmd(xbee, "+++");
@@ -602,16 +772,21 @@ int xbee_init(netdev2_t *dev)
     _at_cmd(xbee, "ATAC\r");
     /* exit command mode */
     _at_cmd(xbee, "ATCN\r");
+#endif
 
     /* load long address (we can not set it, its read only for Xbee devices) */
     if (_get_addr_long(xbee, xbee->addr_long.uint8, IEEE802154_LONG_ADDRESS_LEN) < 0) {
         DEBUG("[xbee] init: error getting address\n");
         return -EIO;
     }
+#ifndef XBEE2
     if (_set_addr(xbee, &((xbee->addr_long).uint8[6]), IEEE802154_SHORT_ADDRESS_LEN) < 0) {
         DEBUG("[xbee] init: error setting short address\n");
         return -EIO;
     }
+#endif
+
+#ifndef XBEE2
     /* set default channel */
     tmp[1] = 0;
     tmp[0] = XBEE_DEFAULT_CHANNEL;
@@ -626,6 +801,13 @@ int xbee_init(netdev2_t *dev)
         DEBUG("[xbee] init: error setting PAN ID\n");
         return -EIO;
     }
+#else
+    uint8_t tmp[2];
+    if (_get_scan_channel(xbee, tmp, 2) < 0) {
+        DEBUG("[xbee] init: error getting scan channel\n");
+        return -EIO;
+    }
+#endif 
 
     DEBUG("[xbee] init: Initialization successful\n");
     return 0;
@@ -785,10 +967,18 @@ static int xbee_set(netdev2_t *ndev, netopt_t opt, void *value, size_t len)
         case NETOPT_ADDR_LEN:
         case NETOPT_SRC_LEN:
             return _set_addr_len(dev, value, len);
+        case NETOPT_DST_ADDRESS:
+            return _set_dest_addr(dev, (uint8_t *)value, len);
+#ifndef XBEE2
         case NETOPT_CHANNEL:
             return _set_channel(dev, (uint8_t *)value, len);
         case NETOPT_NID:
             return _set_panid(dev, (uint8_t *)value, len);
+#else
+        case NETOPT_CHANNEL:
+            return _set_scan_channel(dev, (uint8_t *)value, len);
+#endif
+
 #ifdef MODULE_XBEE_ENCRYPTION
         case NETOPT_ENCRYPTION:
             return _set_encryption(dev, (uint8_t *)value);

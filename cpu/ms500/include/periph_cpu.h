@@ -53,6 +53,31 @@ typedef uint32_t gpio_t;
  * @brief   Macro for accessing GPIO pins
  */
 #define GPIO_PIN(x, y)      (((uint32_t)GPIO1)|(x<<12)|y)
+#define D0  GPIO_PIN(PB,  5)
+#define D1  GPIO_PIN(PB,  4)
+#define D2  GPIO_PIN(PA, 13)
+#define D3  GPIO_PIN(PA, 12)
+#define D4  GPIO_PIN(PB,  7)
+#define D5  GPIO_PIN(PB,  6)
+#define D6  GPIO_PIN(PA,  9)
+#define D7  GPIO_PIN(PA,  8)
+#define D8  GPIO_PIN(PA, 15)
+#define D9  GPIO_PIN(PA, 14)
+#define D10 GPIO_PIN(PB,  1)
+#define D11 GPIO_PIN(PB,  3)
+#define D12 GPIO_PIN(PB,  2)
+#define D13 GPIO_PIN(PB,  0)
+#define A0  GPIO_PIN(PA,  0)
+#define A1  GPIO_PIN(PA,  1)
+#define A2  GPIO_PIN(PA,  3)
+#define A3  GPIO_PIN(PA, 10)
+#define A4  GPIO_PIN(PA,  5)
+#define A5  GPIO_PIN(PA,  4)
+
+/**
+ * @brief   Macro for accessing GPIO pins
+ */
+#define GPIO_PIN(x, y)      (((uint32_t)GPIO1)|(x<<12)|y)
 
 /**
  * @brief   Available MUX values for configuring a pin's alternate function
