@@ -11,7 +11,7 @@ export OFLAGS = -O binary
 #export DIST_PATH = $(RIOTBOARD)/$(BOARD)/dist
 export PORT_LINUX ?= /dev/ttyUSB0
 export PORT_DARWIN ?= $(firstword $(sort $(wildcard /dev/tty.usbmodem*)))
-export PKEY ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/private.pem
+export PKEY ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/test_private.pem
 export SIGNFW ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/64bit/axsign
 export AXTOOL ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/64bit/axtool
 
