@@ -12,8 +12,8 @@ export OFLAGS = -O binary
 export PORT_LINUX ?= /dev/ttyUSB0
 export PORT_DARWIN ?= $(firstword $(sort $(wildcard /dev/tty.usbmodem*)))
 export PKEY ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/private.pem
-export SIGNFW ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/sign_fw
-export AXTOOL ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/axtool
+export SIGNFW ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/64bit/axsign
+export AXTOOL ?= $(RIOTBASE)/dist/tools/axio-builder-ms500/64bit/axtool
 
 # setup serial terminal
 include $(RIOTBOARD)/Makefile.include.serial

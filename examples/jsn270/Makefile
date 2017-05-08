@@ -89,11 +89,3 @@ else
   endif
 endif
 
-BINFILE ?= $(ELFFILE:.elf=.bin)
-SIGNFW=$(RIOTBASE)/dist/ms500-tools/sign_fw
-PRIVPEM=$(RIOTBASE)/dist/ms500-tools/private.pem
-#PRIVPEM=~/projects/ms500/2ndloader/private.pem
-
-sig: $(ELFFILE)
-	$(Q)$(OBJCOPY) --gap-fill=0xff -O binary $(ELFFILE) $(BINFILE)
-	$(Q)$(SIGNFW) $(BINFILE) $(PRIVPEM) 
