@@ -102,25 +102,52 @@ typedef struct {
 } uart_conf_t;
 
 /**
+ * @brief Declare needed generic SPI functions
+ */
+#define PERIPH_SPI_NEEDS_INIT_CS
+#define PERIPH_SPI_NEEDS_TRANSFER_BYTE
+#define PERIPH_SPI_NEEDS_TRANSFER_REG
+#define PERIPH_SPI_NEEDS_TRANSFER_REGS
+
+/** 
+ * @brief   Override SPI mode selection values
+ */
+#define HAVE_SPI_MODE_T
+typedef enum {
+    SPI_MODE_0 = 0x0,       /**< CPOL=0, CPHA=0 */
+    SPI_MODE_1 = 0x2,       /**< CPOL=0, CPHA=1 */
+    SPI_MODE_2 = 0x1,       /**< CPOL=1, CPHA=0 */
+    SPI_MODE_3 = 0x3,       /**< CPOL=1, CPHA=1 */
+} spi_mode_t;
+    
+/** 
+ * @brief   Datafields for static SPI clock configuration values
+ */
+typedef struct {
+    uint8_t cpsr;           /**< CPSR clock divider */
+    uint8_t scr;            /**< SCR clock divider */
+} spi_clk_conf_t;
+
+/**
  * @brief   SPI device configuration
  */
 typedef union {
-    uint16_t raw;
+    uint8_t raw;
     struct spi_field {
         uint8_t enable     : 1;
         uint8_t is_master  : 1;
         uint8_t interrupt  : 1;
-		uint8_t rsvd1      : 5;
         uint8_t frf        : 2; // frame format (0: Motorola, 1: TI, 2: NSM)
-        uint8_t dss        : 4; // data size select 3(4bit) ~ 15(16bit)
-		uint8_t rsvd2      : 2;
+		uint8_t rsvd1      : 3;
     } f;
 } spi_param_t;
 
+/**
+ * @brief   SPI configuration data structure
+ */
 typedef struct {
     void *reg;              /**< pointer to the used SPI device */
     gpio_t clk_pin;         /**< used CLK pin */
-    gpio_t cs_pin;          /**< used CS pin */
     gpio_t miso_pin;        /**< used MISO pin */
     gpio_t mosi_pin;        /**< used MOSI pin */
     gpio_mux_t mux;         /**< alternate function for pin (mux) */

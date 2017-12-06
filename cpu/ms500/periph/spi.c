@@ -30,10 +30,10 @@
  */
 static mutex_t locks[SPI_NUMOF];
 
-static void spi1_2_init(spi_t dev)
+static void spi1_2_init(spi_t bus)
 {
-	tSPI_REG *reg = spi_config[dev].reg;
-	spi_param_t param = spi_config[dev].param;
+	tSPI_REG *reg = spi_config[bus].reg;
+	spi_param_t param = spi_config[bus].param;
 
 	if (param.f.is_master)
 		reg->cr1 &= ~(SPI_CR1_MS);
@@ -46,10 +46,7 @@ static void spi1_2_init(spi_t dev)
 
 	/* SPI Data Size Select */
 	reg->cr0 &= ~SPI_CR0_DSS_MASK;
-	reg->cr0 |= SPI_CR0_DSS(param.f.dss);
-
-	/* SPI Clock prescale divisor */
-	reg->cpsr = 0x2; // 48MHz / 2 = 24MHz
+	reg->cr0 |= SPI_CR0_DSS(7); // 8bit
 
 	if (param.f.is_master)
 		reg->cr1 |= SPI_CR1_SOD;
@@ -60,10 +57,10 @@ static void spi1_2_init(spi_t dev)
 	reg->cr1 |= SPI_CR1_SSE;
 }
 
-static void spi3_init(spi_t dev)
+static void spi3_init(spi_t bus)
 {
-	tSPI3_REG *reg = spi_config[dev].reg;
-	spi_param_t param = spi_config[dev].param;
+	tSPI3_REG *reg = spi_config[bus].reg;
+	spi_param_t param = spi_config[bus].param;
 
 	if (param.f.is_master)
 		reg->ctrl &= ~(SPI3_CR_MST_SLV);
@@ -76,7 +73,7 @@ static void spi3_init(spi_t dev)
 
 	/* SPI Data Size Select */
 	reg->ctrl &= ~(SPI3_CR_DATA_SIZE_MASK<<8);
-	reg->ctrl |= SPI3_CR_DATA_SIZE(param.f.dss);
+	reg->ctrl |= SPI3_CR_DATA_SIZE(7); // 8bit
 
 	if (param.f.is_master)
 	{
@@ -88,10 +85,6 @@ static void spi3_init(spi_t dev)
 	}
 	else
 	{
-		/* SPI Clock prescale divisor */
-		reg->ext_ctrl &= ~(SPI3_EXT_CLK_PRESC_MASK<<8);
-		reg->ext_ctrl |= SPI3_EXT_CLK_PRESC(2);
-
 		/* SPI data output disable */
 		reg->ctrl |= SPI3_CR_SDO_EN;
 
@@ -105,13 +98,13 @@ static void spi3_init(spi_t dev)
 
 void spi_init(spi_t bus)
 {
-    /* make sure given bus is good */
-    assert(bus < SPI_NUMOF);
+	/* make sure given bus is good */
+	assert(bus < SPI_NUMOF);
 
-    /* initialize the device lock */
-    mutex_init(&locks[bus]);
+	/* initialize the device lock */
+	mutex_init(&locks[bus]);
 
-    /* configure pins and their muxes */
+	/* configure pins and their muxes */
 	if (spi_config[bus].param.f.enable)
 	{
 		spi_init_pins(bus);
@@ -125,10 +118,9 @@ void spi_init(spi_t bus)
 
 void spi_init_pins(spi_t bus)
 {
-    gpio_init_mux(spi_config[bus].clk_pin,  spi_config[bus].mux);
-    gpio_init_mux(spi_config[bus].cs_pin,   spi_config[bus].mux);
-    gpio_init_mux(spi_config[bus].miso_pin, spi_config[bus].mux);
-    gpio_init_mux(spi_config[bus].mosi_pin, spi_config[bus].mux);
+	gpio_init_mux(spi_config[bus].clk_pin,  spi_config[bus].mux);
+	gpio_init_mux(spi_config[bus].miso_pin, spi_config[bus].mux);
+	gpio_init_mux(spi_config[bus].mosi_pin, spi_config[bus].mux);
 
 	CLKRST->peri_rst = SPIx_CLK_EN(bus);
 	while ( !(CLKRST->peri_rst & SPIx_CLK_EN(bus)) );
@@ -136,137 +128,46 @@ void spi_init_pins(spi_t bus)
 
 int spi_acquire(spi_t bus, spi_cs_t cs, spi_mode_t mode, spi_clk_t clk)
 {
-    /* get exclusive access to the device */
-    mutex_lock(&locks[bus]);
+	/* get exclusive access to the device */
+	mutex_lock(&locks[bus]);
 
-	if (bus == 2) {
+	if (bus == 2)
+	{
 		tSPI3_REG *reg = spi_config[bus].reg;
-
-		switch (mode) {
-			case SPI_MODE_0:
-				reg->ctrl &= ~SPI3_CR_CLK_POL;
-				reg->ctrl &= ~SPI3_CR_PHASE;
-				break;
-			case SPI_MODE_1:
-				reg->ctrl &= ~SPI3_CR_CLK_POL;
-				reg->ctrl |= SPI3_CR_PHASE;
-				break;
-			case SPI_MODE_2:
-				reg->ctrl |= SPI3_CR_CLK_POL;
-				reg->ctrl &= ~SPI3_CR_PHASE;
-				break;
-			case SPI_MODE_3:
-				reg->ctrl |= SPI3_CR_CLK_POL;
-				reg->ctrl |= SPI3_CR_PHASE;
-				break;
-			default:
-				return SPI_NOMODE;
-		}
-
-		switch (clk) {
-			case SPI_CLK_100KHZ:
-				reg->ctrl &= ~(SPI3_CR_BAUDRATE_MASK<<12);
-				reg->ctrl |= SPI3_CR_BAUDRATE(3);
-				reg->ext_ctrl &= ~(SPI3_EXT_CLK_PRESC_MASK<<8);
-				reg->ext_ctrl |= SPI3_EXT_CLK_PRESC(29); // 48MHz / (30 * 2^4) = 100KHz
-				break;
-			case SPI_CLK_400KHZ:
-				reg->ctrl &= ~(SPI3_CR_BAUDRATE_MASK<<12);
-				reg->ctrl |= SPI3_CR_BAUDRATE(1);
-				reg->ext_ctrl &= ~(SPI3_EXT_CLK_PRESC_MASK<<8);
-				reg->ext_ctrl |= SPI3_EXT_CLK_PRESC(29); // 48MHz / (30 * 2^2) = 400KHz
-				break;
-			case SPI_CLK_1MHZ:
-				reg->ctrl &= ~(SPI3_CR_BAUDRATE_MASK<<12);
-				reg->ctrl |= SPI3_CR_BAUDRATE(3);
-				reg->ext_ctrl &= ~(SPI3_EXT_CLK_PRESC_MASK<<8);
-				reg->ext_ctrl |= SPI3_EXT_CLK_PRESC(2); // 48MHz / (3 * 2^4) = 1MHz
-				break;
-			case SPI_CLK_5MHZ:
-				reg->ctrl &= ~(SPI3_CR_BAUDRATE_MASK<<12);
-				reg->ctrl |= SPI3_CR_BAUDRATE(0);
-				reg->ext_ctrl &= ~(SPI3_EXT_CLK_PRESC_MASK<<8);
-				reg->ext_ctrl |= SPI3_EXT_CLK_PRESC(4); // 48MHz / (5 * 2^1) = 4.8MHz
-				break;
-			case SPI_CLK_10MHZ:
-				reg->ctrl &= ~(SPI3_CR_BAUDRATE_MASK<<12);
-				reg->ctrl |= SPI3_CR_BAUDRATE(0);
-				reg->ext_ctrl &= ~(SPI3_EXT_CLK_PRESC_MASK<<8);
-				reg->ext_ctrl |= SPI3_EXT_CLK_PRESC(2); // 48MHz / (3 * 2^1) = 8MHz
-				break;
-			default:
-				return SPI_NOCLK;
-		}
+		reg->ctrl &= ~( SPI3_CR_CLK_POL | SPI3_CR_PHASE | (SPI3_CR_BAUDRATE_MASK<<12) );
+		reg->ctrl |= ( (mode << 4) | SPI3_CR_BAUDRATE(spi3_clk_config[clk].scr) );
+		reg->ext_ctrl &= ~(SPI3_EXT_CLK_PRESC_MASK<<8);
+		reg->ext_ctrl |= SPI3_EXT_CLK_PRESC(spi3_clk_config[clk].cpsr);
 	}
-	else {
+	else
+	{
 		tSPI_REG *reg = spi_config[bus].reg;
-
-		switch (mode) {
-			case SPI_MODE_0:
-				reg->cr0 &= ~SPI_CR0_SPO;
-				reg->cr0 &= ~SPI_CR0_SPH;
-				break;
-			case SPI_MODE_1:
-				reg->cr0 &= ~SPI_CR0_SPO;
-				reg->cr0 |= SPI_CR0_SPH;
-				break;
-			case SPI_MODE_2:
-				reg->cr0 |= SPI_CR0_SPO;
-				reg->cr0 &= ~SPI_CR0_SPH;
-				break;
-			case SPI_MODE_3:
-				reg->cr0 |= SPI_CR0_SPO;
-				reg->cr0 |= SPI_CR0_SPH;
-				break;
-			default:
-				return SPI_NOMODE;
-		}
-
-		switch (clk) {
-			case SPI_CLK_100KHZ:
-				reg->cr0 &= ~(SPI_CR0_SCR_MASK<<8);
-				reg->cr0 |= SPI_CR0_SCR(239); // 24MHz / 240 = 100KHz
-				break;
-			case SPI_CLK_400KHZ:
-				reg->cr0 &= ~(SPI_CR0_SCR_MASK<<8);
-				reg->cr0 |= SPI_CR0_SCR(59); // 24MHz / 60 = 400KHz
-				break;
-			case SPI_CLK_1MHZ:
-				reg->cr0 &= ~(SPI_CR0_SCR_MASK<<8);
-				reg->cr0 |= SPI_CR0_SCR(23); // 24MHz / 24 = 1MHz
-				break;
-			case SPI_CLK_5MHZ:
-				reg->cr0 &= ~(SPI_CR0_SCR_MASK<<8);
-				reg->cr0 |= SPI_CR0_SCR(4); // 24MHz / 5 = 4.8MHz
-				break;
-			case SPI_CLK_10MHZ:
-				reg->cr0 &= ~(SPI_CR0_SCR_MASK<<8);
-				reg->cr0 |= SPI_CR0_SCR(2); // 24MHz / 3 = 8MHz
-				break;
-			default:
-				return SPI_NOCLK;
-		}
+		reg->cr0 &= ~( SPI_CR0_SPO | SPI_CR0_SPH | (SPI_CR0_SCR_MASK<<8) );
+		reg->cr0 |= ( (mode << 6) | SPI_CR0_SCR(spi1_2_clk_config[clk].scr) );
+		reg->cpsr = spi1_2_clk_config[clk].cpsr;
 	}
 
-    return SPI_OK;
+	return SPI_OK;
 }
 
 void spi_release(spi_t bus)
 {
-    /* release access to the device */
-    mutex_unlock(&locks[bus]);
+	/* release access to the device */
+	mutex_unlock(&locks[bus]);
 }
 
-static inline uint16_t spi3_inout(tSPI3_REG* reg, uint16_t data)
+static uint16_t spi3_inout(void *_reg, uint16_t data)
 {
+	tSPI3_REG *reg = (tSPI3_REG *)_reg;
 	while (!(reg->state & SPI3_STS_TX_FIFO_EMPTY)) {}
 	reg->data = data;
 	while (!(reg->state & SPI3_STS_RX_FIFO_RDY)) {}
 	return reg->data;
 }
 
-static inline uint16_t spi1_2_inout(tSPI_REG* reg, uint16_t data)
+static uint16_t spi1_2_inout(void *_reg, uint16_t data)
 {
+	tSPI_REG *reg = (tSPI_REG *)_reg;
 	while (!(reg->sr & SPI_PSR_TNF)) {}
 	reg->dr = data;
 	while (!(reg->sr & SPI_PSR_RNE)) {}
@@ -276,109 +177,30 @@ static inline uint16_t spi1_2_inout(tSPI_REG* reg, uint16_t data)
 void spi_transfer_bytes(spi_t bus, spi_cs_t cs, bool cont,
                         const void *out, void *in, size_t len)
 {
-	uint8_t *out8_buf, *in8_buf;
-	uint16_t *out16_buf, *in16_buf;
+	uint8_t *inbuf = (uint8_t *)in;
+	uint8_t *outbuf = (uint8_t *)out;
 	uint16_t tmp;
 	size_t i;
+	uint16_t (*spi_inout)(void *reg, uint16_t);
 
 	assert(out || in);
 
-	if (bus == 2 && cs != SPI_CS_UNDEF) {
+	if (cs != SPI_CS_UNDEF)
 		gpio_clear((gpio_t)cs);
-	}
 
-	if (spi_config[bus].param.f.dss > 7)
-	{
-		out16_buf = (uint16_t *)out;
-		in16_buf = (uint16_t *)in;
-
-		if (bus == 2) {
-			for(i = 0; i < len; i++) {
-				tmp = spi3_inout(spi_config[bus].reg, out16_buf ? out16_buf[i] : 0);
-				if (in16_buf)
-					in16_buf[i] = tmp;
-			}
-		}
-		else {
-			for (i = 0; i < len; i++) {
-				tmp = spi1_2_inout(spi_config[bus].reg, out16_buf ? out16_buf[i] : 0);
-				if (in16_buf)
-					in16_buf[i] = tmp;
-			}
-		}
-	}
+	if (bus == 2)
+		spi_inout = spi3_inout;
 	else
-	{
-		out8_buf = (uint8_t *)out;
-		in8_buf = (uint8_t *)in;
+		spi_inout = spi1_2_inout;
 
-		if (bus == 2) {
-			for(i = 0; i < len; i++) {
-				tmp = spi3_inout(spi_config[bus].reg, out8_buf ? out8_buf[i] : 0);
-				if (in8_buf)
-					in8_buf[i] = tmp & 0xff;
-			}
-		}
-		else {
-			for(i = 0; i < len; i++) {
-				tmp = spi1_2_inout(spi_config[bus].reg, out8_buf ? out8_buf[i] : 0);
-				if (in8_buf)
-					in8_buf[i] = tmp & 0xff;
-			}
-		}
+	for(i = 0; i < len; i++) {
+		tmp = spi_inout(spi_config[bus].reg, (uint16_t)(outbuf ? outbuf[i] : 0));
+		if (inbuf)
+			inbuf[i] = (uint8_t)(tmp & 0xff);
 	}
 
-	if ((bus == 2) && (!cont) && (cs != SPI_CS_UNDEF)) {
+	if ((!cont) && (cs != SPI_CS_UNDEF))
 		gpio_set((gpio_t)cs);
-	}
-}
 
-int spi_init_cs(spi_t bus, spi_cs_t cs)
-{
-	if (bus != 2)
-		return SPI_NODEV;
-
-	if (cs == SPI_CS_UNDEF || cs == GPIO_UNDEF)
-		return SPI_NOCS;
-
-	gpio_init((gpio_t)cs, GPIO_OUT);
-	gpio_set((gpio_t)cs);
-
-	return SPI_OK;
-}
-
-uint8_t spi_transfer_byte(spi_t bus, spi_cs_t cs, bool cont, uint8_t out)
-{
-	if (spi_config[bus].param.f.dss > 7) {
-		uint16_t in16;
-		uint16_t out16 = (uint16_t)out << 8;
-		spi_transfer_bytes(bus, cs, cont, &out16, &in16, 1);
-		return (uint8_t)(in16 & 0xff);
-	}
-	else {
-		uint8_t in8;
-		spi_transfer_bytes(bus, cs, cont, &out, &in8, 1);
-		return in8;
-	}
-}
-
-uint8_t spi_transfer_reg(spi_t bus, spi_cs_t cs, uint8_t reg, uint8_t out)
-{
-	if (spi_config[bus].param.f.dss > 7) {
-		uint16_t in16;
-		uint16_t out16 = (uint16_t)reg << 8;
-		spi_transfer_bytes(bus, cs, false, &out16, &in16, 1);
-		return (uint8_t)(in16 & 0xff);
-	}
-	else {
-		spi_transfer_bytes(bus, cs, true, &reg, NULL, 1);
-		return spi_transfer_byte(bus, cs, false, out);
-	}
-}
-
-void spi_transfer_regs(spi_t bus, spi_cs_t cs, uint8_t reg, const void *out, void *in, size_t len)
-{
-	spi_transfer_bytes(bus, cs, true, &reg, NULL, 1);
-	spi_transfer_bytes(bus, cs, false, out, in, len);
 }
 

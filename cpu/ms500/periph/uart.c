@@ -126,8 +126,8 @@ static int init_base(uart_t uart, uint32_t baudrate)
     	case UART_BAUDRATE_1200:
     	case UART_BAUDRATE_110:
     		{
-    			uint32_t ibrd = CLOCK_CORECLOCK / (16*baudrate);
-    			uint32_t fbrd = (((float)CLOCK_CORECLOCK / (16*baudrate)) - ibrd)*64;
+    			uint32_t ibrd = CLOCK_UART / (16*baudrate);
+    			uint32_t fbrd = (((float)CLOCK_UART / (16*baudrate)) - ibrd)*64;
     			if ((fbrd * 10) % 10 > 5 )
     				fbrd++;
     			dev->ibrd = ibrd & UART_IBRD_BAUD_DIVINT_MASK;

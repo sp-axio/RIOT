@@ -403,10 +403,126 @@ int cmd_bench(int argc, char **argv)
     return 0;
 }
 
+void sx127x_reg_read_burst(uint8_t addr, uint8_t *buffer, uint8_t size)
+{
+    unsigned int cpsr;
+
+    cpsr = irq_disable();
+
+    spi_acquire(spiconf.dev, spiconf.cs, spiconf.mode, spiconf.clk);
+
+    spi_transfer_regs(spiconf.dev, spiconf.cs, addr & 0x7F, NULL, buffer, size);
+
+    spi_release(spiconf.dev);
+
+    irq_restore(cpsr);
+}
+
+void sx127x_reg_write_burst(uint8_t addr, uint8_t *buffer, uint8_t size)
+{
+    unsigned int cpsr;
+
+    cpsr = irq_disable();
+
+    spi_acquire(spiconf.dev, spiconf.cs, spiconf.mode, spiconf.clk);
+
+    spi_transfer_regs(spiconf.dev, spiconf.cs, addr | 0x80, buffer, NULL, size);
+
+    spi_release(spiconf.dev);
+
+    irq_restore(cpsr);
+}
+
+uint8_t sx127x_reg_read(uint8_t addr)
+{
+    uint8_t data;
+    sx127x_reg_read_burst(addr, &data, 1);
+    return data;
+}
+
+void sx127x_reg_write(uint8_t addr, uint8_t data)
+{
+    sx127x_reg_write_burst(addr, &data, 1);
+}
+
+void sx127x_read_fifo(uint8_t *buffer, uint8_t size)
+{
+    sx127x_reg_read_burst(0, buffer, size);
+}
+
+void sx127x_write_fifo(uint8_t *buffer, uint8_t size)
+{
+    sx127x_reg_write_burst(0, buffer, size);
+}
+
+int cmd_test1(int argc, char **argv)
+{
+    if (spi_acquire(spiconf.dev, spiconf.cs,
+                    spiconf.mode, spiconf.clk) != SPI_OK) {
+        puts("error: unable to acquire the SPI bus");
+        return 1;
+    }
+    for (int i=0 ; i<0x50; i++) {
+        printf("spi reg_%x: %x\n", i, spi_transfer_reg(spiconf.dev, spiconf.cs, i, 0));
+    }
+    spi_release(spiconf.dev);
+
+    return 0;
+}
+
+int cmd_test2(int argc, char **argv)
+{
+    for (uint8_t i=0 ; i<0x50; i++) {
+        printf("sx127x reg_%x: %x\n", i, sx127x_reg_read(i));
+    }
+    return 0;
+}
+
+int cmd_test3(int argc, char **argv)
+{
+    if (argc != 3) {
+        printf("usage: %s <reg> <data>\n", argv[0]);
+        return 1;
+    }
+    uint8_t reg = atoi(argv[1]);
+    uint8_t data = atoi(argv[2]);
+    sx127x_reg_write(reg, data);
+    return 0;
+}
+
+int cmd_test4(int argc, char **argv)
+{
+    uint8_t buffer[200];
+    if (argc != 2) {
+        printf("usage: %s <base>\n", argv[0]);
+        return 1;
+    }
+    uint8_t c = atoi(argv[1]);
+    for (int i=0; i<200; i++)
+        buffer[i] = c + i;
+    sx127x_write_fifo(buffer, 200);
+    return 0;
+}
+
+int cmd_test5(int argc, char **argv)
+{
+    uint8_t buffer[200];
+    memset(buffer, 0, 200);
+    sx127x_read_fifo(buffer, 200);
+    extern void hexdump(uint32_t *addr, int len, int canonical);
+    hexdump((uint32_t *)buffer, 200, 1);
+    return 0;
+}
+
 static const shell_command_t shell_commands[] = {
     { "init", "Setup a particular SPI configuration", cmd_init },
     { "send", "Transfer string to slave", cmd_transfer },
     { "bench", "Runs some benchmarks", cmd_bench },
+    { "test1", "test spi_transfer_reg", cmd_test1 },
+    { "test2", "test spi_transfer_regs dump", cmd_test2 },
+    { "test3", "test spi_transfer_regs write", cmd_test3 },
+    { "test4", "test spi_transfer_regs fifo write", cmd_test4 },
+    { "test5", "test spi_transfer_regs fifo read", cmd_test5 },
     { NULL, NULL, NULL }
 };
 

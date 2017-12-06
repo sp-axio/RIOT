@@ -89,26 +89,22 @@ int i2c_init_master(i2c_t dev, i2c_speed_t speed)
 	switch (speed) {
         case I2C_SPEED_LOW:
 			scl = 10000; // 10KHz
-			pres = CLOCK_CORECLOCK / (5 * scl) - 1; // 960 - 1
+			pres = CLOCK_APB / (5 * scl) - 1; // 640 - 1
 			break;
         case I2C_SPEED_NORMAL:
 			scl = 100000; // 100KHz
-			pres = CLOCK_CORECLOCK / (5 * scl) - 1; // 96 - 1
+			pres = CLOCK_APB / (5 * scl) - 1; // 64 - 1
             break;
         case I2C_SPEED_FAST:
 			scl = 400000;  // 400KHz
-			pres = CLOCK_CORECLOCK / (5 * scl) - 1; // 24 - 1
+			pres = CLOCK_APB / (5 * scl) - 1; // 16 - 1
             break;
         case I2C_SPEED_FAST_PLUS:
-			scl = 960000; // 960KHz
-			pres = CLOCK_CORECLOCK / (5 * scl) - 1; // 10 - 1
-			break;
-        case I2C_SPEED_HIGH:
-			scl = 3200000; // 3.2MHz
-			pres = CLOCK_CORECLOCK / (5 * scl) - 1; // 3 - 1
+			scl = 800000; // 800KHz
+			pres = CLOCK_APB / (5 * scl) - 1; // 8 - 1
 			break;
         default:
-            return -2;
+            return -1;
 	}
 
 	i2c_init_pins(dev);

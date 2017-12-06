@@ -63,29 +63,21 @@ void timer_init_pins(tim_t dev)
 int timer_init(tim_t dev, unsigned long freq, timer_cb_t cb, void *arg)
 {
 	tGPT_REG *reg;
-	uint32_t pres;
+	uint32_t pres = 0;
 
 	if (dev >= TIMER_NUMOF)
 		return -1;
 
-	switch (freq) {
-		case 48000000: pres = 0; break;
-		case 24000000: pres = 1; break;
-		case 12000000: pres = 2; break;
-		case  6000000: pres = 3; break;
-		case  3000000: pres = 4; break;
-		case  1500000: pres = 5; break;
-		case   750000: pres = 6; break;
-		case   375000: pres = 7; break;
-		case   187500: pres = 8; break;
-		case    93750: pres = 9; break;
-		case    46875: pres = 10; break;
-		default:
-					   return -1;
-	}
+	if (freq != 1000000UL)
+		return -1;
 
-	if (dev == XTIMER_DEV)
-		pres = 5; // xtimer for 1.5MHz (see tick_conversion.h)
+    while (1) {
+		if ((CLOCK_APB >> pres) == 1000000UL)
+			break;
+		pres++;
+		if (pres == 32)
+			return -1;
+	}
 
 	timer_init_pins(dev);
 

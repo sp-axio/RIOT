@@ -36,7 +36,7 @@ extern "C" {
  */
 #define XTIMER_DEV          (0)
 #define XTIMER_CHAN         (0)
-#define XTIMER_HZ           (1500000lu)
+#define XTIMER_HZ           (1000000lu)
 #define XTIMER_WIDTH        (16)
 #define XTIMER_SHIFT        (0)
 #define XTIMER_OVERHEAD     (30)

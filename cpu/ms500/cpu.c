@@ -64,17 +64,17 @@ static void pll_control(void)
     CLKRST->pll_ctrl = CLKRST->pll_ctrl & ~PLL_RST;
     while((CLKRST->clk_sts & PLL_LOCK) != PLL_LOCK);
 
-    CLKRST->diva_ctrl = DIVx_CLK_SEL(CLK_SRC_PLL)  | DIVx_VAL(1);           // 96MHz
+    CLKRST->diva_ctrl = DIVx_CLK_SEL(CLK_SRC_PLL)  | DIVx_VAL(2);           // 64MHz
     while((CLKRST->clk_sts & DIVA_RDY) != DIVA_RDY);
 
-    CLKRST->divb_ctrl = DIVx_CLK_SEL(CLK_SRC_DIVA) | DIVx_VAL(1);           // 48MHz
+    CLKRST->divb_ctrl = DIVx_CLK_SEL(CLK_SRC_PLL) | DIVx_VAL(3);            // 48MHz
     while((CLKRST->clk_sts & DIVB_RDY) != DIVB_RDY);
 
-    CLKRST->divc_ctrl = DIVx_CLK_SEL(CLK_SRC_DIVA) | DIVx_VAL(1);           // 48MHz
+    CLKRST->divc_ctrl = DIVx_CLK_SEL(CLK_SRC_DIVA) | DIVx_VAL(1);           // 32MHz
     while((CLKRST->clk_sts & DIVC_RDY) != DIVC_RDY);
 
-    CLKRST->divd_ctrl = DIVx_CLK_SEL(CLK_SRC_DIVA) | DIVx_VAL(1) | DIVD_EN; // 24MHz
-    while((CLKRST->clk_sts & DIVD_RDY) != DIVD_RDY);
+    //CLKRST->divd_ctrl = DIVx_CLK_SEL(CLK_SRC_DIVA) | DIVx_VAL(1) | DIVD_EN; // 24MHz
+    //while((CLKRST->clk_sts & DIVD_RDY) != DIVD_RDY);
 
     /* wait for status valid, setup time*/
     for ( i=0; i<100; i++ )
@@ -89,13 +89,13 @@ static void clock_select(void)
 
     CLKRST->spif_clk_ctrl = SPIF_CLK_SEL(CLK_SRC_PLL) | SPIF_CLK_EN;
 
-    CLKRST->st_clk_ctrl   = ST_CLK_EN;
-    while((CLKRST->clk_sts & ST_CLK_RDY) != ST_CLK_RDY);
+    //CLKRST->st_clk_ctrl   = ST_CLK_EN;
+    //while((CLKRST->clk_sts & ST_CLK_RDY) != ST_CLK_RDY);
 
     CLKRST->tmr_clk_ctrl  = TMR_CLK_EN(1) | TMR_CLK_LPEN(1) | TMR_CLK_EN(2) | TMR_CLK_LPEN(2);
     while((CLKRST->clk_sts & TMR_CLK_RDY) != TMR_CLK_RDY);
 
-    CLKRST->peri_clk_sel  = UART_CLK_SEL(CLK_SRC_DIVB) | SPI_CLK_SEL(CLK_SRC_DIVB) | SDMMC_CLK_SEL(CLK_SRC_DIVA);
+    CLKRST->peri_clk_sel  = UART_CLK_SEL(CLK_SRC_DIVB) | SPI_CLK_SEL(CLK_SRC_DIVC) | SDMMC_CLK_SEL(CLK_SRC_DIVA);
 
     CLKRST->peri_clk_en   = 0xFFFFFFFF;
     CLKRST->peri_clk_lpen = 0xFFFFFFFF;

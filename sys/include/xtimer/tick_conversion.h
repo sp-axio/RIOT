@@ -125,32 +125,7 @@ inline static uint64_t _xtimer_usec_from_ticks64(uint64_t ticks) {
 #else
 /* No matching implementation found, try to give meaningful error messages */
 #if ((XTIMER_HZ % 15625) == 0)
-#ifdef CPU_MS500
-/*
- * MS500 timer clock is 1500000 Hz (axio-builder-ms500/include/board.h)
- *
- * 1 usec = 1.5 tick
- * 1 tick = 2/3 usec
- *
- */
-inline static uint32_t _xtimer_ticks_from_usec(uint32_t usec) {
-    return (usec * 3) >> 1;
-}
-
-inline static uint64_t _xtimer_ticks_from_usec64(uint64_t usec) {
-    return (usec * 3) >> 1;
-}
-
-inline static uint32_t _xtimer_usec_from_ticks(uint32_t ticks) {
-    return (ticks << 1) / 3;
-}
-
-inline static uint64_t _xtimer_usec_from_ticks64(uint64_t ticks) {
-    return (ticks << 1) / 3;
-}
-#else
 #error Unsupported hardware timer frequency (XTIMER_HZ), missing XTIMER_SHIFT in board.h? See xtimer.h documentation for more info
-#endif
 #else
 #error Unknown hardware timer frequency (XTIMER_HZ), check board.h and/or add an implementation in sys/include/xtimer/tick_conversion.h
 #endif

@@ -33,11 +33,12 @@ extern "C" {
 #endif
 
 /**
- * @name Clock configuration
- * @{
+ * @name Clock system configuration
  */
-#define CLOCK_CORECLOCK     (48000000U)
-/** @} */
+#define CLOCK_CORECLOCK     (64000000U)
+#define CLOCK_APB           (32000000U)
+#define CLOCK_UART          (48000000U)
+#define CLOCK_SPI           (32000000U)
 
 /**
  * @name Timer peripheral configuration
@@ -132,6 +133,36 @@ static const uart_conf_t uart_config[] = {
 /** @} */
 
 /**
+ * @brief   Pre-calculated clock divider values for SPI1 and SPI2 based on a 32MHz
+ *
+ * SPI1, SPI2: CLOCK_SPI / cspr * (1+scr)
+ *             where cspr: 2, 4, ..., 254 (even number)
+ *                   scr:  0, 1, ..., 255
+ */
+static const spi_clk_conf_t spi1_2_clk_config[] = {
+    { .cpsr = 32, .scr =  9 },  /* divided by 32 * 10 : 100khz */
+    { .cpsr = 16, .scr =  4 },  /* divided by 16 *  5 : 400khz */
+    { .cpsr =  8, .scr =  3 },  /* divided by  8 *  4 :   1MHz */
+    { .cpsr =  4, .scr =  1 },  /* divided by  4 *  2 :   4MHz */
+    { .cpsr =  2, .scr =  1 }   /* divided by  2 *  2 :   8MHz */
+};
+
+/**
+ * @brief   Pre-calculated clock divider values for SPI3 based on a 32MHz
+ *
+ * SPI3      : CLOCK_SPI / ((cspr+1) * 2 ^ (scr+1))
+ *             where cspr: 0, 1, ..., 63
+ *                   scr:  0, 1, ..., 9
+ */
+static const spi_clk_conf_t spi3_clk_config[] = {
+    { .cpsr =  9, .scr =  4 },  /* divided by 10 * 32 : 100KHz */
+    { .cpsr =  9, .scr =  2 },  /* divided by 10 *  8 : 400KHz */
+    { .cpsr =  7, .scr =  1 },  /* divided by  8 *  4 :   1MHz */
+    { .cpsr =  7, .scr =  0 },  /* divided by  8 *  2 :   4MHz */
+    { .cpsr =  1, .scr =  0 }   /* divided by  2 *  2 :   8MHz */
+};
+
+/**
  * @name SPI configuration
  * @{
  */
@@ -139,29 +170,26 @@ static const spi_conf_t spi_config[] = {
     {
         .reg       = SPI1,
         .clk_pin   = GPIO_PIN(PB, 0), // PB0, PB11
-        .cs_pin    = GPIO_PIN(PB, 1), // PB1, PB12
         .miso_pin  = GPIO_PIN(PB, 2), // PB2, PB13
         .mosi_pin  = GPIO_PIN(PB, 3), // PB3, PB14
         .mux       = GPIO_MUX_1,
-        .param     = { .f = { .enable = 1, .is_master = 1, .interrupt = 0, .dss = 15 } }
+        .param     = { .f = { .enable = 1, .is_master = 1, .interrupt = 0, .frf = 0 } }
     },
     {
         .reg       = SPI2,
         .clk_pin   = GPIO_PIN(PA, 12), // PA12, PC0
-        .cs_pin    = GPIO_PIN(PA, 13), // PA13, PC1
         .miso_pin  = GPIO_PIN(PA, 14), // PA14, PC2
         .mosi_pin  = GPIO_PIN(PA, 15), // PA15, PC3
         .mux       = GPIO_MUX_1,
-        .param     = { .f = { .enable = 0, .is_master = 1, .interrupt = 0, .dss = 15 } }
+        .param     = { .f = { .enable = 0, .is_master = 1, .interrupt = 0, .frf = 0 } }
     },
     {
         .reg       = SPI3,
         .clk_pin   = GPIO_PIN(PB, 4), // PB4, PC8
-        .cs_pin    = GPIO_PIN(PB, 5), // PB5, PC9
         .miso_pin  = GPIO_PIN(PB, 6), // PB6, PC10
         .mosi_pin  = GPIO_PIN(PB, 7), // PB7, PC11
         .mux       = GPIO_MUX_1,
-        .param     = { .f = { .enable = 0, .is_master = 1, .interrupt = 0, .dss = 15} }
+        .param     = { .f = { .enable = 0, .is_master = 1, .interrupt = 0, .frf = 0} }
     }
 };
 
