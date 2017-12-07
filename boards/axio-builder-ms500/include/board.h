@@ -34,14 +34,10 @@ extern "C" {
  * @brief   xtimer configuration
  * @{
  */
-#define XTIMER_DEV          (0)
-#define XTIMER_CHAN         (0)
-#define XTIMER_HZ           (1000000lu)
 #define XTIMER_WIDTH        (16)
-#define XTIMER_SHIFT        (0)
-#define XTIMER_OVERHEAD     (30)
-#define XTIMER_BACKOFF      (60)
-#define XTIMER_ISR_BACKOFF  (100)
+#define XTIMER_OVERHEAD     (30)  // default: 20
+#define XTIMER_BACKOFF      (40)  // default: 30
+#define XTIMER_ISR_BACKOFF  (40)  // default: 20
 /** @} */
 
 /**

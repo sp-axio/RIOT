@@ -30,6 +30,7 @@
 
 #include "periph/timer.h"
 #include "periph_conf.h"
+#include "xtimer.h"
 
 #define ENABLE_DEBUG    (0)
 #include "debug.h"
@@ -63,21 +64,23 @@ void timer_init_pins(tim_t dev)
 int timer_init(tim_t dev, unsigned long freq, timer_cb_t cb, void *arg)
 {
 	tGPT_REG *reg;
-	uint32_t pres = 0;
+	uint32_t pres;
+	unsigned long desired_freq;
 
 	if (dev >= TIMER_NUMOF)
 		return -1;
 
-	if (freq != 1000000UL)
-		return -1;
+	if (dev == XTIMER_DEV)
+		desired_freq = XTIMER_HZ;
+	else
+		desired_freq = freq;
 
-	while (1) {
-		if ((CLOCK_APB >> pres) == 1000000UL)
+	for (pres=0; pres<16; pres++) {
+		if ((CLOCK_APB >> pres) == desired_freq)
 			break;
-		pres++;
-		if (pres == 32)
-			return -1;
 	}
+	if (pres >= 16)
+		return -1;
 
 	timer_init_pins(dev);
 
