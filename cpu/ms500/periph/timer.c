@@ -71,7 +71,7 @@ int timer_init(tim_t dev, unsigned long freq, timer_cb_t cb, void *arg)
 	if (freq != 1000000UL)
 		return -1;
 
-    while (1) {
+	while (1) {
 		if ((CLOCK_APB >> pres) == 1000000UL)
 			break;
 		pres++;
@@ -109,7 +109,7 @@ int timer_init(tim_t dev, unsigned long freq, timer_cb_t cb, void *arg)
 
 int timer_set(tim_t dev, int channel, unsigned int timeout)
 {
-    return timer_set_absolute(dev, channel, timer_read(dev) + timeout);
+	return timer_set_absolute(dev, channel, timer_read(dev) + timeout);
 }
 
 int timer_set_absolute(tim_t dev, int channel, unsigned int value)

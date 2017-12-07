@@ -138,7 +138,7 @@ typedef union {
         uint8_t is_master  : 1;
         uint8_t interrupt  : 1;
         uint8_t frf        : 2; // frame format (0: Motorola, 1: TI, 2: NSM)
-		uint8_t rsvd1      : 3;
+        uint8_t rsvd1      : 3;
     } f;
 } spi_param_t;
 
@@ -168,26 +168,26 @@ typedef struct {
  * @brief   Timer configuration data
  */
 typedef union {
-	uint16_t raw;
-	struct timer_field {
-		uint8_t tmr_mode   : 2;
-		uint8_t trig_mode  : 2;
-		uint8_t trig_pol   : 1;
-		uint8_t trig_sel   : 1;
-		uint8_t match_out  : 1;
-		uint8_t rsvd1      : 1;
-		uint8_t out_mode   : 2;
-		uint8_t rsvd2      : 6;
-	} f;
+    uint16_t raw;
+    struct timer_field {
+        uint8_t tmr_mode   : 2;
+        uint8_t trig_mode  : 2;
+        uint8_t trig_pol   : 1;
+        uint8_t trig_sel   : 1;
+        uint8_t match_out  : 1;
+        uint8_t rsvd1      : 1;
+        uint8_t out_mode   : 2;
+        uint8_t rsvd2      : 6;
+    } f;
 } timer_param_t;
 
 typedef struct {
     tGPT_REG *reg;  /**< timer device */
-	uint8_t channels;
-	gpio_t mat_pin[2];
-	gpio_t cap_pin[2];
-	gpio_mux_t mux;
-	timer_param_t param[2];
+    uint8_t channels;
+    gpio_t mat_pin[2];
+    gpio_t cap_pin[2];
+    gpio_mux_t mux;
+    timer_param_t param[2];
 } timer_conf_t;
 
 /**

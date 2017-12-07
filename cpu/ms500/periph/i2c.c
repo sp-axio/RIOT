@@ -55,16 +55,16 @@ static inline void _stop(tI2C_REG *reg);
  */
 static mutex_t locks[] = {
 #if I2C_0_EN
-    [I2C_0] = MUTEX_INIT,
+	[I2C_0] = MUTEX_INIT,
 #endif
 #if I2C_1_EN
-    [I2C_1] = MUTEX_INIT,
+	[I2C_1] = MUTEX_INIT,
 #endif
 #if I2C_2_EN
-    [I2C_2] = MUTEX_INIT
+	[I2C_2] = MUTEX_INIT,
 #endif
 #if I2C_3_EN
-    [I2C_3] = MUTEX_INIT
+	[I2C_3] = MUTEX_INIT
 #endif
 };
 
@@ -82,29 +82,29 @@ int i2c_init_master(i2c_t dev, i2c_speed_t speed)
 	uint32_t scl, pres;
 	tI2C_REG *ir;
 
-    if ((unsigned int)dev >= I2C_NUMOF) {
-        return -1;
-    }
+	if ((unsigned int)dev >= I2C_NUMOF) {
+		return -1;
+	}
 
 	switch (speed) {
-        case I2C_SPEED_LOW:
+		case I2C_SPEED_LOW:
 			scl = 10000; // 10KHz
 			pres = CLOCK_APB / (5 * scl) - 1; // 640 - 1
 			break;
-        case I2C_SPEED_NORMAL:
+		case I2C_SPEED_NORMAL:
 			scl = 100000; // 100KHz
 			pres = CLOCK_APB / (5 * scl) - 1; // 64 - 1
-            break;
-        case I2C_SPEED_FAST:
+			break;
+		case I2C_SPEED_FAST:
 			scl = 400000;  // 400KHz
 			pres = CLOCK_APB / (5 * scl) - 1; // 16 - 1
-            break;
-        case I2C_SPEED_FAST_PLUS:
+			break;
+		case I2C_SPEED_FAST_PLUS:
 			scl = 800000; // 800KHz
 			pres = CLOCK_APB / (5 * scl) - 1; // 8 - 1
 			break;
-        default:
-            return -1;
+		default:
+			return -1;
 	}
 
 	i2c_init_pins(dev);
@@ -115,7 +115,7 @@ int i2c_init_master(i2c_t dev, i2c_speed_t speed)
 
 	ir->ctrl |= I2C_CTRL_EN;
 
-    return 0;
+	return 0;
 }
 
 int i2c_acquire(i2c_t dev)

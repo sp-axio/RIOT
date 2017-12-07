@@ -158,7 +158,7 @@ static const spi_clk_conf_t spi3_clk_config[] = {
     { .cpsr =  9, .scr =  4 },  /* divided by 10 * 32 : 100KHz */
     { .cpsr =  9, .scr =  2 },  /* divided by 10 *  8 : 400KHz */
     { .cpsr =  7, .scr =  1 },  /* divided by  8 *  4 :   1MHz */
-    { .cpsr =  7, .scr =  0 },  /* divided by  8 *  2 :   4MHz */
+    { .cpsr =  3, .scr =  0 },  /* divided by  4 *  2 :   4MHz */
     { .cpsr =  1, .scr =  0 }   /* divided by  2 *  2 :   8MHz */
 };
 
@@ -201,30 +201,30 @@ static const spi_conf_t spi_config[] = {
  * @{
  */
 static const i2c_conf_t i2c_config[] = {
-	{
-		.reg		= I2C1,
-		.scl_pin	= GPIO_PIN(PB, 2), // PB2, PB8
-		.sda_pin	= GPIO_PIN(PB, 3), // PB3, PB9
-		.mux        = GPIO_MUX_3,
-	},
-	{
-		.reg		= I2C2,
-		.scl_pin	= GPIO_PIN(PA, 4), // PA4, PB6
-		.sda_pin	= GPIO_PIN(PA, 5), // PA5, PB7
-		.mux        = GPIO_MUX_3,
-	},
-	{
-		.reg		= I2C3,
-		.scl_pin	= GPIO_PIN(PA, 2),
-		.sda_pin	= GPIO_PIN(PA, 3),
-		.mux        = GPIO_MUX_3,
-	},
-	{
-		.reg		= I2C4,
-		.scl_pin	= GPIO_PIN(PB, 0),
-		.sda_pin	= GPIO_PIN(PB, 1),
-		.mux        = GPIO_MUX_3,
-	},
+    {
+        .reg		= I2C1,
+        .scl_pin	= GPIO_PIN(PB, 2), // PB2, PB8
+        .sda_pin	= GPIO_PIN(PB, 3), // PB3, PB9
+        .mux        = GPIO_MUX_3,
+    },
+    {
+        .reg		= I2C2,
+        .scl_pin	= GPIO_PIN(PA, 4), // PA4, PB6
+        .sda_pin	= GPIO_PIN(PA, 5), // PA5, PB7
+        .mux        = GPIO_MUX_3,
+    },
+    {
+        .reg		= I2C3,
+        .scl_pin	= GPIO_PIN(PA, 2),
+        .sda_pin	= GPIO_PIN(PA, 3),
+        .mux        = GPIO_MUX_3,
+    },
+    {
+        .reg		= I2C4,
+        .scl_pin	= GPIO_PIN(PB, 0),
+        .sda_pin	= GPIO_PIN(PB, 1),
+        .mux        = GPIO_MUX_3,
+    },
 };
 
 #define I2C_NUMOF          (sizeof(i2c_config) / sizeof(i2c_config[0]))
