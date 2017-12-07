@@ -65,18 +65,15 @@ int timer_init(tim_t dev, unsigned long freq, timer_cb_t cb, void *arg)
 {
 	tGPT_REG *reg;
 	uint32_t pres;
-	unsigned long desired_freq;
 
 	if (dev >= TIMER_NUMOF)
 		return -1;
 
-	if (dev == XTIMER_DEV)
-		desired_freq = XTIMER_HZ;
-	else
-		desired_freq = freq;
+	if ((dev == XTIMER_DEV) && (freq != XTIMER_HZ))
+		return - 1;
 
 	for (pres=0; pres<16; pres++) {
-		if ((CLOCK_APB >> pres) == desired_freq)
+		if ((CLOCK_APB >> pres) == freq)
 			break;
 	}
 	if (pres >= 16)
