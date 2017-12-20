@@ -802,7 +802,6 @@ int xbee_init(netdev2_t *dev)
         return -EIO;
     }
 #else
-    uint8_t tmp[2];
     if (_get_scan_channel(xbee, tmp, 2) < 0) {
         DEBUG("[xbee] init: error getting scan channel\n");
         return -EIO;
