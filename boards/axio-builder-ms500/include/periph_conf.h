@@ -172,24 +172,41 @@ static const spi_conf_t spi_config[] = {
         .clk_pin   = GPIO_PIN(PB, 0), // PB0, PB11
         .miso_pin  = GPIO_PIN(PB, 2), // PB2, PB13
         .mosi_pin  = GPIO_PIN(PB, 3), // PB3, PB14
+        .cs_pin    = GPIO_PIN(PB, 1), // PB3, PB14
         .mux       = GPIO_MUX_1,
         .param     = { .f = { .enable = 1, .is_master = 1, .interrupt = 0, .frf = 0 } }
     },
     {
         .reg       = SPI2,
-        .clk_pin   = GPIO_PIN(PA, 12), // PA12, PC0
-        .miso_pin  = GPIO_PIN(PA, 14), // PA14, PC2
-        .mosi_pin  = GPIO_PIN(PA, 15), // PA15, PC3
+#if 0
+        .clk_pin   = GPIO_PIN(PA, 12),
+        .miso_pin  = GPIO_PIN(PA, 14),
+        .mosi_pin  = GPIO_PIN(PA, 15),
+        .cs_pin    = GPIO_PIN(PA, 13),
+#else
+        .clk_pin   = GPIO_PIN(PC, 0),
+        .miso_pin  = GPIO_PIN(PC, 2),
+        .mosi_pin  = GPIO_PIN(PC, 3),
+        .cs_pin    = GPIO_PIN(PC, 1),
+#endif
         .mux       = GPIO_MUX_1,
-        .param     = { .f = { .enable = 0, .is_master = 1, .interrupt = 0, .frf = 0 } }
+        .param     = { .f = { .enable = 1, .is_master = 0, .interrupt = 1, .frf = 0 } }
     },
     {
         .reg       = SPI3,
-        .clk_pin   = GPIO_PIN(PB, 4), // PB4, PC8
-        .miso_pin  = GPIO_PIN(PB, 6), // PB6, PC10
-        .mosi_pin  = GPIO_PIN(PB, 7), // PB7, PC11
+#if 0
+        .clk_pin   = GPIO_PIN(PB, 4),
+        .miso_pin  = GPIO_PIN(PB, 6),
+        .mosi_pin  = GPIO_PIN(PB, 7),
+        .cs_pin    = GPIO_PIN(PB, 5),
+#else
+        .clk_pin   = GPIO_PIN(PC, 8),
+        .miso_pin  = GPIO_PIN(PC, 10),
+        .mosi_pin  = GPIO_PIN(PC, 11),
+        .cs_pin    = GPIO_PIN(PC, 9),
+#endif
         .mux       = GPIO_MUX_1,
-        .param     = { .f = { .enable = 0, .is_master = 1, .interrupt = 0, .frf = 0} }
+        .param     = { .f = { .enable = 1, .is_master = 1, .interrupt = 0, .frf = 0} }
     }
 };
 

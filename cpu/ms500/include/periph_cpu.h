@@ -150,6 +150,7 @@ typedef struct {
     gpio_t clk_pin;         /**< used CLK pin */
     gpio_t miso_pin;        /**< used MISO pin */
     gpio_t mosi_pin;        /**< used MOSI pin */
+    gpio_t cs_pin;          /**< used CS pin */
     gpio_mux_t mux;         /**< alternate function for pin (mux) */
     spi_param_t param;
 } spi_conf_t;

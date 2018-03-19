@@ -24,11 +24,48 @@
 #include "mutex.h"
 #include "assert.h"
 #include "periph/spi.h"
+#ifdef MODULE_OD
+#include "od.h"
+#endif
 
 /**
  * @brief Array holding one pre-initialized mutex for each SPI device
  */
 static mutex_t locks[SPI_NUMOF];
+
+__attribute__((weak)) void spi_isr_callback(int bus) {}
+
+void isr_spi1(void)
+{
+	spi_param_t param = spi_config[0].param;
+	if (!param.f.interrupt) {
+		core_panic(PANIC_DUMMY_HANDLER, "SPI0 HANDLER");
+	}
+	spi_isr_callback(0);
+	cortexm_isr_end();
+}
+
+void isr_spi2(void)
+{
+	spi_param_t param = spi_config[1].param;
+	if (!param.f.interrupt) {
+		core_panic(PANIC_DUMMY_HANDLER, "SPI1 HANDLER");
+	}
+	spi_isr_callback(1);
+	cortexm_isr_end();
+}
+
+void isr_spi3(void)
+{
+	spi_param_t param = spi_config[2].param;
+	if (!param.f.interrupt) {
+		core_panic(PANIC_DUMMY_HANDLER, "SPI2 HANDLER");
+	}
+	tSPI3_REG *reg = spi_config[2].reg;
+	spi_isr_callback(2);
+	reg->int_sts_clr |= SPI3_INT_RX_CLR;
+	cortexm_isr_end();
+}
 
 static void spi1_2_init(spi_t bus)
 {
@@ -36,9 +73,13 @@ static void spi1_2_init(spi_t bus)
 	spi_param_t param = spi_config[bus].param;
 
 	if (param.f.is_master)
+	{
 		reg->cr1 &= ~(SPI_CR1_MS);
+	}
 	else
+	{
 		reg->cr1 |= (SPI_CR1_MS);
+	}
 
 	/* SPI Frame Format */
 	reg->cr0 &= ~(SPI_CR0_FRF_MASK<<4);
@@ -49,12 +90,22 @@ static void spi1_2_init(spi_t bus)
 	reg->cr0 |= SPI_CR0_DSS(7); // 8bit
 
 	if (param.f.is_master)
-		reg->cr1 |= SPI_CR1_SOD;
+	{
+		reg->cr1 |= (SPI_CR1_SSE | SPI_CR1_SOD);
+	}
 	else
+	{
 		reg->cr1 &= ~(SPI_CR1_SOD);
+		reg->cr1 |= SPI_CR1_SSE;
 
-	/* SPI Enable */
-	reg->cr1 |= SPI_CR1_SSE;
+		/* Enable Interrupt */
+		if (param.f.interrupt)
+		{
+			reg->imsc |= SPI_IMSC_RXIM;
+			NVIC_ClearPendingIRQ(SPI1_IRQn + bus);
+			NVIC_EnableIRQ(SPI1_IRQn + bus);
+		}
+	}
 }
 
 static void spi3_init(spi_t bus)
@@ -63,9 +114,13 @@ static void spi3_init(spi_t bus)
 	spi_param_t param = spi_config[bus].param;
 
 	if (param.f.is_master)
+	{
 		reg->ctrl &= ~(SPI3_CR_MST_SLV);
+	}
 	else
+	{
 		reg->ctrl |= (SPI3_CR_MST_SLV);
+	}
 
 	/* SPI Frame Format */
 	reg->ctrl &= ~(SPI3_CR_FRM_FORMAT_MASK<<2);
@@ -90,6 +145,14 @@ static void spi3_init(spi_t bus)
 
 		/* Slave-mode output enable */
 		reg->ext_ctrl &= ~(SPI3_EXT_SSEL_DIS);
+
+		/* Enable Interrupt */
+		if (param.f.interrupt)
+		{
+			reg->int_en |= SPI3_INT_RX_FIFO_HF_EN;
+			NVIC_ClearPendingIRQ(SPI3_IRQn);
+			NVIC_EnableIRQ(SPI3_IRQn);
+		}
 	}
 
 	/* SPI Enable */
@@ -121,6 +184,8 @@ void spi_init_pins(spi_t bus)
 	gpio_init_mux(spi_config[bus].clk_pin,  spi_config[bus].mux);
 	gpio_init_mux(spi_config[bus].miso_pin, spi_config[bus].mux);
 	gpio_init_mux(spi_config[bus].mosi_pin, spi_config[bus].mux);
+	// slave must use hwcs, but let master also use hwcs in this function.
+	gpio_init_mux(spi_config[bus].cs_pin,   spi_config[bus].mux);
 
 	CLKRST->peri_rst = SPIx_CLK_EN(bus);
 	while ( !(CLKRST->peri_rst & SPIx_CLK_EN(bus)) );
@@ -183,10 +248,21 @@ void spi_transfer_bytes(spi_t bus, spi_cs_t cs, bool cont,
 	size_t i;
 	uint16_t (*spi_inout)(void *reg, uint16_t);
 
+#ifdef MODULE_OD
+	if (out) {
+		printf("spi%d write\n", bus);
+		od(out, len, OD_WIDTH_DEFAULT, OD_FLAGS_BYTES_HEX | OD_FLAGS_LENGTH_CHAR);
+	} else {
+		printf("spi%d read\n", bus);
+	}
+#endif
+
 	assert(out || in);
 
 	if (cs != SPI_CS_UNDEF)
+	{
 		gpio_clear((gpio_t)cs);
+	}
 
 	if (bus == 2)
 		spi_inout = spi3_inout;
@@ -200,7 +276,8 @@ void spi_transfer_bytes(spi_t bus, spi_cs_t cs, bool cont,
 	}
 
 	if ((!cont) && (cs != SPI_CS_UNDEF))
+	{
 		gpio_set((gpio_t)cs);
-
+	}
 }
 
