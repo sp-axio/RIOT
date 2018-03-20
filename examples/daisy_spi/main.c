@@ -40,6 +40,7 @@
 
 static char protocol_magic1[] = "Axio";
 static char protocol_magic2[] = "Enum";
+static char protocol_magic3[] = "Resp";
 
 static int16_t axio_id = -1;
 
@@ -160,7 +161,9 @@ void spi_isr_callback(int bus)
 	switch(RECV.state)
 	{
 		case 0: // check magic with network-order stream
-			if (!memcmp(&buffer, protocol_magic1, 4) || !memcmp(&buffer, protocol_magic2, 4)) {
+			if (!memcmp(&buffer, protocol_magic1, 4) ||
+					!memcmp(&buffer, protocol_magic2, 4) ||
+					!memcmp(&buffer, protocol_magic3, 4)) {
 				recv_init();
 				xtimer_set_msg(&RECV.timer, 5000000, &RECV.msg, RECV.pid);
 				memcpy(&RECV.magic, buffer, 4);
@@ -215,6 +218,7 @@ static msg_t msg[8];
 static void __process_packet(void)
 {
 	extern void do_job(void *, uint32_t);
+	extern void do_resp(void *, uint32_t);
 	int16_t *id = (int16_t *)RECV.body;
 
 	if (!memcmp(&RECV.magic, protocol_magic2, 4)) {
@@ -237,19 +241,31 @@ static void __process_packet(void)
 		dprintf(DBG_BIT_PROCESS, "Invalid ID is present, consume this packet\n");
 		return;
 	}
-
-	/* process for protocal_magic1 */
-	if (axio_id < 0) {
-		dprintf(DBG_BIT_PROCESS, "axio id was not set, consume this packet\n");
+	else if (!memcmp(&RECV.magic, protocol_magic3, 4)) {
+		if (axio_id > 0) {
+			dprintf(DBG_BIT_PROCESS, "Resp packet has been arrived, passing this packet to next\n");
+			goto send_to_next;
+		}
+		dprintf(DBG_BIT_PROCESS, "Resp packet has been arrived, consume this packet\n");
+		do_resp(RECV.body, RECV.length);
 		return;
 	}
-	else if (*id != axio_id) {
-		dprintf(DBG_BIT_PROCESS, "packet id is %u, passing packet to next axio\n", *id);
-		goto send_to_next;
+	else if (!memcmp(&RECV.magic, protocol_magic1, 4)) {
+		if (axio_id < 0) {
+			dprintf(DBG_BIT_PROCESS, "my ID was not set, consume this packet\n");
+			return;
+		}
+		else if (*id != axio_id) {
+			dprintf(DBG_BIT_PROCESS, "Packet ID is %u, passing packet to next axio\n", *id);
+			goto send_to_next;
+		}
+
+		dprintf(DBG_BIT_PROCESS, "Control packet (%u) has been arrived\n", *id);
+		do_job(RECV.body, RECV.length);
+		return;
 	}
 
-	dprintf(DBG_BIT_PROCESS, "My packet (%u) has been arrived\n", *id);
-	do_job(RECV.body, RECV.length);
+	dprintf(DBG_BIT_PROCESS, "Unknown packet has been arrived, drop this packet\n");
 	return;
 
 send_to_next:
@@ -278,8 +294,8 @@ static void process_packet(msg_t *msg)
 			RECV.state = 0;
 			break;
 		case RECV_COMPLETE:
-			dprintf(DBG_BIT_THREAD, "packet processing has started\n");
 			{
+				dprintf(DBG_BIT_THREAD, "packet processing has started\n");
 #ifdef MODULE_OD
 				if (DBG_FLAG&DBG_BIT_THREAD)
 				{ // dump
@@ -295,9 +311,9 @@ static void process_packet(msg_t *msg)
 				{
 					dprintf(DBG_BIT_THREAD, "crc is invalid (%x) expected (%x) length (%u)\n", RECV.csum, crc16, RECV.length);
 				}
+				// finish
+				RECV.state = 0;
 			}
-			// finish
-			RECV.state = 0;
 			break;
 		case RECV_IN_PROGRESS:
 			dprintf(DBG_BIT_THREAD, "the previous packet is processing now\n");
@@ -337,6 +353,26 @@ static int setid(int argc, char **argv)
 	}
 	printf("Axio ID: %d\n", axio_id);
 	return 0;
+}
+
+void send_response(uint8_t *buffer, size_t size)
+{
+	printf("send response\n");
+	memcpy(&RECV.magic, protocol_magic3, 4);
+	int16_t *id = (int16_t *)&RECV.body[0];
+	*id = axio_id; // set my ID;
+	memcpy(&RECV.body[2], buffer, size);
+	RECV.length = size;
+	if (RECV.length % 4) {
+		int padlen = 4 - (RECV.length % 4);
+		if (RECV.length + padlen > sizeof(RECV.body)) {
+			printf("too long packet!\n");
+			return;
+		}
+		RECV.length += padlen;
+	}
+	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
+	daisy_spi_write((uint8_t *)&RECV, 8 /* magic4, length2, csum2 */ + RECV.length);
 }
 
 static int send_data_packet(int argc, char **argv)
