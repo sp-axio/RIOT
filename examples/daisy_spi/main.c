@@ -529,7 +529,7 @@ static const shell_command_t shell_commands[] = {
 	 * sendh 456e756d0400a47801000000
 	 * sendh 4178696f1000b497020012345678abcdef01234567890abc
 	 */
-    { "setid", "get my ID", getid },
+    { "getid", "get my ID", getid },
     { "send", "send data packet", send_data_packet },
     { "enum", "send enum packet", send_enum_packet },
     { "sendh", "(test) send hex", sendh },
