@@ -69,6 +69,7 @@ typedef struct recv_t {
 	xtimer_t timer;
 	msg_t msg;
 	uint32_t msg_cnt[RECV_MSG_MAX];
+	uint32_t crc_error;
 } recv_t;
 
 static recv_t RECV = { .state = 0, };
@@ -309,6 +310,7 @@ static void process_packet(msg_t *msg)
 				}
 				else
 				{
+					RECV.crc_error++;
 					dprintf(DBG_BIT_THREAD, "crc is invalid (%x) expected (%x) length (%u)\n", RECV.csum, crc16, RECV.length);
 				}
 				// finish
@@ -341,23 +343,17 @@ static void *process_spi_recv(void *arg)
 	return NULL;
 }
 
-static int setid(int argc, char **argv)
+static int getid(int argc, char **argv)
 {
-	if (argc == 2) {
-		int16_t tmp = strtol(argv[1], 0, 10);
-		if (tmp < 0 || tmp > 100) {
-			printf("Out of range.\n");
-			return 1;
-		}
-		axio_id = tmp;
+	if (argc != 1) {
+		return 1;
 	}
-	printf("Axio ID: %d\n", axio_id);
+	printf("my ID: %d\n", axio_id);
 	return 0;
 }
 
 void send_response(uint8_t *buffer, size_t size)
 {
-	printf("send response\n");
 	memcpy(&RECV.magic, protocol_magic3, 4);
 	int16_t *id = (int16_t *)&RECV.body[0];
 	*id = axio_id; // set my ID;
@@ -434,6 +430,8 @@ static int send_enum_packet(int argc, char **argv)
 		return 1;
 	}
 
+	axio_id = 0; // set master ID is zero.
+
 	int16_t *id = (int16_t *)&RECV.body;
 	id[0] = 1; /* set next id = 1 */
 	id[1] = 0; /* fill 4 byte */
@@ -507,13 +505,14 @@ static int crc16ccitt(int argc, char **argv)
 static int dbginfo(int argc, char **argv)
 {
 	printf("RECV Info\n");
-	printf("state         %d\n",    RECV.state);
-	printf("pos           %p\n",    RECV.pos);
-	printf("remainder     %u\n",    RECV.remainder);
+	printf("state         %d\n",     RECV.state);
+	printf("pos           %p\n",     RECV.pos);
+	printf("remainder     %u\n",     RECV.remainder);
 	printf("magic         0x%02x%02x%02x%02x\n", RECV.magic[0], RECV.magic[1], RECV.magic[2], RECV.magic[3]);
-	printf("length        %u\n",    RECV.length);
-	printf("csum          0x%04x\n",  RECV.csum);
-	printf("body addr     %p\n",    RECV.body);
+	printf("length        %u\n",     RECV.length);
+	printf("csum          0x%04x\n", RECV.csum);
+	printf("body addr     %p\n",     RECV.body);
+	printf("crc error     %lu\n",    RECV.crc_error);
 	printf("\nMessage Counter\n");
 	for (int i = 0; i < RECV_MSG_MAX; i++)
 	{
@@ -530,7 +529,7 @@ static const shell_command_t shell_commands[] = {
 	 * sendh 456e756d0400a47801000000
 	 * sendh 4178696f1000b497020012345678abcdef01234567890abc
 	 */
-    { "setid", "set axio id", setid },
+    { "setid", "get my ID", getid },
     { "send", "send data packet", send_data_packet },
     { "enum", "send enum packet", send_enum_packet },
     { "sendh", "(test) send hex", sendh },
