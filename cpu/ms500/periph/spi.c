@@ -24,8 +24,11 @@
 #include "mutex.h"
 #include "assert.h"
 #include "periph/spi.h"
+//#define SPI_DEBUG
+#ifdef SPI_DEBUG
 #ifdef MODULE_OD
 #include "od.h"
+#endif
 #endif
 
 /**
@@ -248,12 +251,14 @@ void spi_transfer_bytes(spi_t bus, spi_cs_t cs, bool cont,
 	size_t i;
 	uint16_t (*spi_inout)(void *reg, uint16_t);
 
-#ifdef MODULE_OD
+#ifdef SPI_DEBUG
 	if (out) {
 		printf("spi%d write\n", bus);
+#ifdef MODULE_OD
 		od(out, len, OD_WIDTH_DEFAULT, OD_FLAGS_BYTES_HEX | OD_FLAGS_LENGTH_CHAR);
+#endif
 	} else {
-		printf("spi%d read\n", bus);
+		printf("spi%d read (%p:%u)\n", bus, in, len);
 	}
 #endif
 
