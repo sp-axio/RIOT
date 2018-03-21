@@ -226,13 +226,18 @@ static void __process_packet(void)
 		dprintf(DBG_BIT_PROCESS, "enumeration packet has been arrived\n");
 		if (*id > 0)
 		{
-			if (axio_id < 0) {
+			if (axio_id == 0) {
+				dprintf(DBG_BIT_PROCESS, "enumeration packet has come back. last id is %d\n", *id);
+				return;
+			}
+			else if (axio_id < 0) {
 				axio_id = *id;
 				dprintf(DBG_BIT_PROCESS, "set my ID = %d\n", axio_id);
 				(*id)++; // increase ID for next Axio
 				RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
 			}
 			else {
+				/* unreachable code normally */
 				dprintf(DBG_BIT_PROCESS, "my ID (%d) is already set, passing this packet to next\n", axio_id);
 				*id = axio_id + 1;
 				RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
