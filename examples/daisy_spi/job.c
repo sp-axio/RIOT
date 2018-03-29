@@ -36,10 +36,12 @@ void do_job(void *body, uint16_t length)
 #endif
 
 #if 1
-	uint8_t buffer[4];
-	uint32_t *p = (uint32_t *)buffer;
-	*p = 0xdead;
-	send_response(buffer, 4);
+	resp_packet_t resp;
+	// don't touch resp.id
+	resp.foo = 0x1234;
+	resp.bar = 0xdeadbeef;
+	resp.baz = 0x05050a0a;
+	send_response((uint8_t *)&resp, sizeof(resp));
 #else
 	/*
 		send response

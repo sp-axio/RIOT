@@ -60,7 +60,7 @@ typedef struct recv_t {
 	uint8_t magic[4];
 	uint16_t length;
 	uint16_t csum;
-	uint8_t body[256];
+	uint8_t body[4096];
 	// These elements must be at the end
 	kernel_pid_t pid;
 	int state;
@@ -114,7 +114,7 @@ static void daisy_spi_init(void)
 	master = &spi[SPI_MASTER];
 }
 
-static void daisy_spi_write(uint8_t *buffer, size_t size)
+static void daisy_spi_raw_write(uint8_t *buffer, size_t size)
 {
 #ifdef MODULE_OD
 	if (DBG_FLAG&DBG_BIT_SPI)
@@ -139,6 +139,11 @@ static void daisy_spi_write(uint8_t *buffer, size_t size)
 	}
 
 	spi_put(master);
+}
+
+static void daisy_spi_write(void)
+{
+	daisy_spi_raw_write((uint8_t *)(&RECV), RECV.length + 8 /* magic 4, length 2, csum 2 */);
 }
 
 void spi_isr_callback(int bus)
@@ -275,7 +280,7 @@ static void __process_packet(void)
 	return;
 
 send_to_next:
-	daisy_spi_write((uint8_t *)&RECV, 8 /* magic4, length2, csum2 */ + RECV.length);
+	daisy_spi_write();
 }
 
 static void process_packet(msg_t *msg)
@@ -362,7 +367,7 @@ void send_response(uint8_t *buffer, size_t size)
 	memcpy(&RECV.magic, protocol_magic3, 4);
 	int16_t *id = (int16_t *)&RECV.body[0];
 	*id = axio_id; // set my ID;
-	memcpy(&RECV.body[2], buffer, size);
+	memcpy(&RECV.body[2], buffer+2, size-2);
 	RECV.length = size;
 	if (RECV.length % 4) {
 		int padlen = 4 - (RECV.length % 4);
@@ -373,7 +378,7 @@ void send_response(uint8_t *buffer, size_t size)
 		RECV.length += padlen;
 	}
 	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
-	daisy_spi_write((uint8_t *)&RECV, 8 /* magic4, length2, csum2 */ + RECV.length);
+	daisy_spi_write();
 }
 
 static int send_data_packet(int argc, char **argv)
@@ -424,7 +429,7 @@ static int send_data_packet(int argc, char **argv)
 
 	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
 
-	daisy_spi_write((uint8_t *)&RECV, 8 /* magic4, length2, csum2 */ + RECV.length);
+	daisy_spi_write();
 
 	return 0;
 }
@@ -445,7 +450,7 @@ static int send_enum_packet(int argc, char **argv)
 	RECV.length = 4;
 	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
 
-	daisy_spi_write((uint8_t *)&RECV, 8 /* magic4, length2, csum2 */ + RECV.length);
+	daisy_spi_write();
 
 	return 0;
 }
@@ -468,7 +473,7 @@ static int sendh(int argc, char **argv)
 		buf[j] = strtoul(tmp, NULL, 16);
 	}
 
-	daisy_spi_write(buf, j);
+	daisy_spi_raw_write(buf, j);
 
 	return 0;
 }
@@ -479,7 +484,7 @@ static int senda(int argc, char **argv)
 		return 1;
 	}
 
-	daisy_spi_write((uint8_t *)argv[1], strlen(argv[1]));
+	daisy_spi_raw_write((uint8_t *)argv[1], strlen(argv[1]));
 
 	return 0;
 }
