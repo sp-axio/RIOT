@@ -233,10 +233,25 @@ static char _pkt_stack[1024];
 static msg_t spi_msg[8];
 static msg_t pkt_msg[8];
 
+static void send_to_pkt_process(uint16_t mtype)
+{
+	msg_t msg;
+	void *pkt = malloc(RECV.length);
+	if (!pkt) {
+		dprintf(DBG_BIT_PREPROCESS, "Not enough memory\n");
+	}
+	memcpy(pkt, RECV.body, RECV.length);
+	msg.type = mtype;
+	msg.content.ptr = pkt;
+	if (msg_send(&msg, pkt_proc_pid) <= 0) {
+		dprintf(DBG_BIT_PREPROCESS, "Can't send message to pkt process\n");
+		free(pkt);
+	}
+}
+
 static void preprocess_pkt(void)
 {
 	int16_t *id = (int16_t *)RECV.body;
-	msg_t msg;
 
 	if (!memcmp(&RECV.magic, protocol_magic2, 4)) {
 		dprintf(DBG_BIT_PREPROCESS, "enumeration packet has been arrived\n");
@@ -269,17 +284,7 @@ static void preprocess_pkt(void)
 			goto send_to_next;
 		}
 		dprintf(DBG_BIT_PREPROCESS, "Resp packet has been arrived, consume this packet\n");
-		void *pkt = malloc(RECV.length);
-		if (!pkt) {
-			dprintf(DBG_BIT_PREPROCESS, "Not enough memory\n");
-		}
-		memcpy(pkt, RECV.body, RECV.length);
-		msg.type = RECV_RESP_PKT;
-		msg.content.ptr = pkt;
-		if (msg_send(&msg, pkt_proc_pid) <= 0) {
-			dprintf(DBG_BIT_PREPROCESS, "Can't send message to pkt process\n");
-			free(pkt);
-		}
+		send_to_pkt_process(RECV_RESP_PKT);
 		return;
 	}
 	else if (!memcmp(&RECV.magic, protocol_magic1, 4)) {
@@ -292,17 +297,7 @@ static void preprocess_pkt(void)
 			goto send_to_next;
 		}
 		dprintf(DBG_BIT_PREPROCESS, "Control packet (%u) has been arrived\n", *id);
-		void *pkt = malloc(RECV.length);
-		if (!pkt) {
-			dprintf(DBG_BIT_PREPROCESS, "Not enough memory\n");
-		}
-		memcpy(pkt, RECV.body, RECV.length);
-		msg.type = RECV_CTRL_PKT;
-		msg.content.ptr = pkt;
-		if (msg_send(&msg, pkt_proc_pid) <= 0) {
-			dprintf(DBG_BIT_PREPROCESS, "Can't send message to pkt process\n");
-			free(pkt);
-		}
+		send_to_pkt_process(RECV_CTRL_PKT);
 		return;
 	}
 

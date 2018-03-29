@@ -9,14 +9,14 @@ typedef struct {
 	int16_t foo;
 	uint32_t bar;
 	uint32_t baz;
-} ctrl_packet_t;
+} ctrl_packet_t; // size should be less than RECV.body
 
 typedef struct {
 	int16_t id; // don't touch this
 	int16_t foo;
 	uint32_t bar;
 	uint32_t baz;
-} resp_packet_t;
+} resp_packet_t; // size should be less than RECV.body
 
 void send_response(uint8_t *buffer, size_t size);
 
