@@ -39,9 +39,9 @@
 #define dprintf(f,fmt...) do { if(DBG_FLAG&f) printf(fmt); } while(0);
 #endif
 
-static char protocol_magic1[] = "Axio";
-static char protocol_magic2[] = "Enum";
-static char protocol_magic3[] = "Resp";
+static const char protocol_magic1[] = "Axio";
+static const char protocol_magic2[] = "Enum";
+static const char protocol_magic3[] = "Resp";
 
 static int16_t axio_id = -1;
 
@@ -69,12 +69,12 @@ typedef struct recv_t {
 	uint16_t csum;
 	uint8_t body[4096];
 	// These elements must be at the end
-	kernel_pid_t pid;
 	int state;
 	uint32_t *pos;
 	uint16_t remainder;
 	xtimer_t timer;
 	msg_t msg;
+	kernel_pid_t pid;
 	uint32_t msg_cnt[RECV_SPI_MSG_MAX];
 	uint32_t crc_error;
 } recv_t;
@@ -85,12 +85,8 @@ static kernel_pid_t pkt_proc_pid = 0;
 
 static void recv_init(void)
 {
-	memset(RECV.magic, 0, 4);
-	RECV.length = 0;
-	RECV.csum = 0;
-	memset(RECV.body, 0, sizeof(RECV.body));
-	RECV.pos = (uint32_t *)RECV.body;
-	RECV.msg.type = RECV_TIMEOUT;
+	xtimer_remove(&RECV.timer);
+	memset(&RECV, 0, (uint32_t)&RECV.pid - (uint32_t)&RECV);
 }
 
 typedef struct {
@@ -105,7 +101,7 @@ static spiconf_t *master = NULL;
 // see board/axio-builder-ms500/include/periph_conf.h for slave setting
 #define SPI_MASTER 2
 
-#define spi_get(s) (spi_acquire((s)->dev, (s)->cs, (s)->mode, (s)->clk) == SPI_OK)
+#define spi_get(s) spi_acquire((s)->dev, (s)->cs, (s)->mode, (s)->clk)
 #define spi_put(s) spi_release((s)->dev)
 #define spi_io(s, outb, inb, size) spi_transfer_bytes((s)->dev, (s)->cs, false, outb, inb, size)
 
@@ -116,7 +112,7 @@ static void daisy_spi_init(void)
 	{
 		spi[i].dev  = SPI_DEV(i);
 		spi[i].mode = SPI_MODE_0;
-		spi[i].clk  = SPI_CLK_1MHZ;
+		spi[i].clk  = SPI_CLK_5MHZ;
 		spi[i].cs   = SPI_HWCS(-1); //in this application, don't use gpio control...
 	}
 
@@ -134,17 +130,22 @@ static void daisy_spi_raw_write(uint8_t *buffer, size_t size)
 	assert(!(size%4));
 
 	int n = size/4;
-	uint8_t *ptr = buffer;
+	uint32_t *ptr = (uint32_t *)buffer;
+	uint32_t recv;
+	uint32_t prev;
 
-	if (!spi_get(master)) {
-		printf("error: unable to acquire the SPI%d bus", spi->dev);
-		return;
-	}
+	spi_get(master);
 
 	for (int i = 0; i < n; i++) {
-		spi_io(master, ptr, NULL, 4);
-		usleep(500);
-		ptr += 4;
+		recv = 0;
+		spi_io(master, &ptr[i], &recv, 4);
+		if (i>2) {
+			if (prev + 1 != recv) {
+				printf("maybe packet lost! idx:%d, recv: %lx, %08lx\n", i, recv, ptr[i]);
+			}
+		}
+		prev = recv;
+		xtimer_spin(xtimer_ticks_from_usec(300));
 	}
 
 	spi_put(master);
@@ -158,20 +159,25 @@ static void daisy_spi_write(void)
 void spi_isr_callback(int bus)
 {
 #define send_message(t) do { msg_t msg; msg.type = t; msg_send(&msg, RECV.pid); } while(0);
+	static uint32_t recv_counter = 0;
+
 	dprintf(DBG_BIT_SPI, "spi%d callback\n", bus);
 
 	uint8_t buffer[4] = { 0xff, 0xff, 0xff, 0xff };
 
 	spiconf_t *slave = &spi[bus];
-	if (!spi_get(slave)) {
-		printf("error: unable to acquire the SPI%d bus", slave->dev);
-		return;
-	}
-	spi_io(slave, NULL, (void *)&buffer, sizeof(buffer));
+
+	spi_get(slave);
+	spi_io(slave, (void *)&recv_counter, (void *)&buffer, sizeof(buffer));
 	spi_put(slave);
 
 	dprintf(DBG_BIT_SPI, "state: %d, buffer: %02x%02x%02x%02x\n",
 			RECV.state, buffer[0], buffer[1], buffer[2], buffer[3]);
+
+	if (RECV.state != 0)
+	{
+		recv_counter++;
+	}
 
 	switch(RECV.state)
 	{
@@ -179,7 +185,8 @@ void spi_isr_callback(int bus)
 			if (!memcmp(&buffer, protocol_magic1, 4) ||
 					!memcmp(&buffer, protocol_magic2, 4) ||
 					!memcmp(&buffer, protocol_magic3, 4)) {
-				recv_init();
+				recv_counter = 1;
+				RECV.msg.type = RECV_TIMEOUT;
 				xtimer_set_msg(&RECV.timer, 5000000, &RECV.msg, RECV.pid);
 				memcpy(&RECV.magic, buffer, 4);
 				RECV.state++;
@@ -192,7 +199,7 @@ void spi_isr_callback(int bus)
 			{
 				uint16_t *len = (uint16_t *)buffer;
 				uint16_t *crc16 = (uint16_t *)(buffer+2);
-				if (*len > 256) {
+				if (*len > sizeof(RECV.body)) {
 					send_message(RECV_INVALID_LENGTH);
 					break;
 				}
@@ -202,6 +209,7 @@ void spi_isr_callback(int bus)
 				}
 				RECV.remainder = RECV.length = *len; // excluding magic, length and csum
 				RECV.csum = *crc16;
+				RECV.pos = (uint32_t *)RECV.body;
 				RECV.state++;
 			}
 			break;
@@ -283,7 +291,7 @@ static void preprocess_pkt(void)
 			dprintf(DBG_BIT_PREPROCESS, "Resp packet has been arrived, passing this packet to next\n");
 			goto send_to_next;
 		}
-		dprintf(DBG_BIT_PREPROCESS, "Resp packet has been arrived, consume this packet\n");
+		dprintf(DBG_BIT_PREPROCESS, "Resp packet has been arrived, consume this packet, Length: %u\n", RECV.length);
 		send_to_pkt_process(RECV_RESP_PKT);
 		return;
 	}
@@ -296,7 +304,7 @@ static void preprocess_pkt(void)
 			dprintf(DBG_BIT_PREPROCESS, "Packet ID is %u, passing packet to next axio\n", *id);
 			goto send_to_next;
 		}
-		dprintf(DBG_BIT_PREPROCESS, "Control packet (%u) has been arrived\n", *id);
+		dprintf(DBG_BIT_PREPROCESS, "Control packet (%u) has been arrived, Length: %u\n", *id, RECV.length);
 		send_to_pkt_process(RECV_CTRL_PKT);
 		return;
 	}
@@ -317,17 +325,21 @@ static void process_spi(msg_t *msg)
 	}
 	switch (msg->type)
 	{
+		case RECV_ERROR:
+			dprintf(DBG_BIT_SPI_THREAD, "recv error\n");
+			recv_init();
+			break;
 		case RECV_INVALID_HEADER:
 			dprintf(DBG_BIT_SPI_THREAD, "invalid header\n");
-			RECV.state = 0;
+			recv_init();
 			break;
 		case RECV_INVALID_LENGTH:
 			dprintf(DBG_BIT_SPI_THREAD, "too long packet, aborting\n");
-			RECV.state = 0;
+			recv_init();
 			break;
 		case RECV_INVALID_ALIGN:
 			dprintf(DBG_BIT_SPI_THREAD, "length must be 4byte-aligned, aborting\n");
-			RECV.state = 0;
+			recv_init();
 			break;
 		case RECV_COMPLETE:
 			{
@@ -346,10 +358,10 @@ static void process_spi(msg_t *msg)
 				else
 				{
 					RECV.crc_error++;
-					dprintf(DBG_BIT_SPI_THREAD, "crc is invalid (%x) expected (%x) length (%u)\n", RECV.csum, crc16, RECV.length);
+					printf("crc is invalid (%x) expected (%x) length (%u)\n", RECV.csum, crc16, RECV.length);
 				}
 				// finish
-				RECV.state = 0;
+				recv_init();
 			}
 			break;
 		case RECV_IN_PROGRESS:
@@ -357,10 +369,10 @@ static void process_spi(msg_t *msg)
 			break;
 		case RECV_TIMEOUT:
 			printf("timeout, goto initial state\n");
-			RECV.state = 0;
+			recv_init();
 			break;
 		default:
-			printf("spi thread: unknown message\n");
+			printf("spi thread: unknown message(%d)\n", msg->type);
 	}
 }
 
@@ -498,6 +510,48 @@ static int send_data_packet(int argc, char **argv)
 	return 0;
 }
 
+static int send_large_packet(int argc, char **argv)
+{
+	if (argc < 2 || argc > 3) {
+		return 1;
+	}
+
+	int16_t _id = strtol(argv[1], 0, 10);
+	if (_id < 0 || _id > 100) {
+		printf("Out of range.\n");
+		return 1;
+	}
+
+	int16_t *id = (int16_t *)&RECV.body[0];
+	*id = _id;
+
+	uint16_t len = 4096;
+	if (argc == 3) {
+		len = strtoul(argv[2], 0, 10);
+		if (len > 4096) {
+			printf("Out of range.\n");
+			return 1;
+		}
+		if (len % 4) {
+			printf("Length must be 4byte aligned\n");
+			return 1;
+		}
+	}
+
+	uint16_t *pos = (uint16_t *)&RECV.body[2];
+	for (unsigned i=0; i<(len/2) - 1 /* exclude id */; i++) {
+		pos[i] = i;
+	}
+
+	memcpy(&RECV.magic, protocol_magic1, 4);
+	RECV.length = len;
+	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
+
+	daisy_spi_write();
+
+	return 0;
+}
+
 static int send_enum_packet(int argc, char **argv)
 {
 	if (argc != 1) {
@@ -603,14 +657,15 @@ static const shell_command_t shell_commands[] = {
 	 * sendh 456e756d0400a47801000000
 	 * sendh 4178696f1000b497020012345678abcdef01234567890abc
 	 */
-    { "getid", "get my ID", getid },
-    { "send", "send data packet", send_data_packet },
-    { "enum", "send enum packet", send_enum_packet },
-    { "sendh", "(test) send hex", sendh },
-    { "senda", "(test) send ascii", senda },
-    { "crc16", "(test) calc crc", crc16ccitt },
-    { "dbg",   "(test) debug info", dbginfo },
-    { NULL, NULL, NULL }
+	{ "getid", "get my ID", getid },
+	{ "send", "send data packet", send_data_packet },
+	{ "send2", "send large data", send_large_packet },
+	{ "enum", "send enum packet", send_enum_packet },
+	{ "sendh", "(test) send hex", sendh },
+	{ "senda", "(test) send ascii", senda },
+	{ "crc16", "(test) calc crc", crc16ccitt },
+	{ "dbg",   "(test) debug info", dbginfo },
+	{ NULL, NULL, NULL }
 };
 
 int main(void)
