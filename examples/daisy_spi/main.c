@@ -46,7 +46,7 @@ enum {
 	RECV_PKT_MSG_MAX
 };
 
-typedef struct recv_t {
+typedef struct _spi_packet_t {
 	// don't touch these elements
 	uint8_t magic[4];
 	uint16_t length;
@@ -57,9 +57,9 @@ typedef struct recv_t {
 	uint32_t *pos;
 	uint16_t remainder;
 	uint32_t crc_error;
-} recv_t;
+} spi_packet_t;
 
-static recv_t RECV = { .state = 0, };
+static spi_packet_t RECV;
 
 static kernel_pid_t spi_proc_pid = 0;
 static kernel_pid_t pkt_proc_pid = 0;
@@ -101,7 +101,8 @@ int tprintf(const char *fmt,...)
 
 static void recv_init(void)
 {
-	memset(&RECV, 0, sizeof(recv_t) - sizeof(uint32_t));
+	memset(&RECV, 0, 8 + sizeof(RECV.body));
+	RECV.state = 0;
 }
 
 typedef struct {
@@ -138,12 +139,12 @@ static void daisy_spi_raw_write(uint8_t *buffer, size_t size)
 {
 	assert(!(size%4));
 
+	spi_get(master);
+
 	int n = size/4;
 	uint32_t *ptr = (uint32_t *)buffer;
 	uint32_t recv;
 	//uint32_t prev;
-
-	spi_get(master);
 
 	for (int i = 0; i < n; i++) {
 		recv = 0;
@@ -163,16 +164,14 @@ static void daisy_spi_raw_write(uint8_t *buffer, size_t size)
 	spi_put(master);
 }
 
-static void daisy_spi_write(void)
+static void daisy_spi_write(spi_packet_t *r)
 {
-	daisy_spi_raw_write((uint8_t *)(&RECV), RECV.length + 8 /* magic 4, length 2, csum 2 */);
+	daisy_spi_raw_write((uint8_t *)r, r->length + 8 /* magic 4, length 2, csum 2 */);
 }
 
 void spi_isr_callback(int bus)
 {
 	static uint32_t recv_counter = 0;
-
-	tprintf("spi%d callback", bus);
 
 	uint8_t buffer[4] = { 0xff, 0xff, 0xff, 0xff };
 
@@ -279,7 +278,7 @@ static void preprocess_pkt(void)
 	return;
 
 send_to_next:
-	daisy_spi_write();
+	daisy_spi_write(&RECV);
 }
 
 static void process_pkt(msg_t *msg)
@@ -399,7 +398,6 @@ static void *process_spi_recv(void *arg)
 	return NULL;
 }
 
-
 static void *process_pkt_recv(void *arg)
 {
 	msg_init_queue(pkt_msg, 8);
@@ -425,21 +423,28 @@ static int getid(int argc, char **argv)
 
 void send_response(uint8_t *buffer, size_t size)
 {
-	memcpy(&RECV.magic, protocol_magic3, 4);
-	int16_t *id = (int16_t *)&RECV.body[0];
+	spi_packet_t *sp = malloc(sizeof(spi_packet_t));
+	if (!sp) {
+		tprintf("Not enough memory\n");
+		return;
+	}
+	memcpy(sp->magic, protocol_magic3, 4);
+	int16_t *id = (int16_t *)&sp->body[0];
 	*id = axio_id; // set my ID;
-	memcpy(&RECV.body[2], buffer+2, size-2);
-	RECV.length = size;
-	if (RECV.length % 4) {
-		int padlen = 4 - (RECV.length % 4);
-		if (RECV.length + padlen > sizeof(RECV.body)) {
-			printf("too long packet!\n");
+	memcpy(&sp->body[2], buffer+2, size-2);
+	sp->length = size;
+	if (sp->length % 4) {
+		int padlen = 4 - (sp->length % 4);
+		if (sp->length + padlen > sizeof(sp->body)) {
+			tprintf("too long packet!\n");
+			free(sp);
 			return;
 		}
-		RECV.length += padlen;
+		sp->length += padlen;
 	}
-	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
-	daisy_spi_write();
+	sp->csum = crc16_ccitt_calc(sp->body, sp->length);
+	daisy_spi_write(sp);
+	free(sp);
 }
 
 static int send_data_packet(int argc, char **argv)
@@ -454,43 +459,52 @@ static int send_data_packet(int argc, char **argv)
 		return 1;
 	}
 
-	int16_t *id = (int16_t *)&RECV.body[0];
+	spi_packet_t *sp = malloc(sizeof(spi_packet_t));
+	if (!sp) {
+		printf("Not enough memory\n");
+		return 1;
+	}
+
+	int16_t *id = (int16_t *)&sp->body[0];
 	*id = _id;
-	uint8_t *pos = &RECV.body[2];
+	uint8_t *pos = &sp->body[2];
 
 	int i, j;
 	char tmp[3];
 	tmp[2] = 0;
-	for (i=0,j=0; i<strlen(argv[2]) && j<sizeof(RECV.body); i+=2,j+=1)
+	for (i=0,j=0; i<strlen(argv[2]) && j<sizeof(sp->body); i+=2,j+=1)
 	{
 		tmp[0] = argv[2][i];
 		tmp[1] = argv[2][i+1];
 		pos[j] = strtoul(tmp, NULL, 16);
-		if (j > sizeof(RECV.body)-2) {
+		if (j > sizeof(sp->body)-2) {
 			printf("too long packet!\n");
+			free(sp);
 			return 1;
 		}
 	}
 
-	memcpy(&RECV.magic, protocol_magic1, 4);
-	RECV.length = j + sizeof(int16_t);
+	memcpy(sp->magic, protocol_magic1, 4);
+	sp->length = j + sizeof(int16_t);
 
-	if (RECV.length % 4) {
-		int padlen = 4 - (RECV.length % 4);
-		if (RECV.length + padlen > sizeof(RECV.body)) {
+	if (sp->length % 4) {
+		int padlen = 4 - (sp->length % 4);
+		if (sp->length + padlen > sizeof(sp->body)) {
 			printf("too long packet!\n");
+			free(sp);
 			return 1;
 		}
-		RECV.length += padlen;
+		sp->length += padlen;
 		for (i=0; i<padlen; i++)
 		{
 			pos[j++] = 0;
 		}
 	}
 
-	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
+	sp->csum = crc16_ccitt_calc(sp->body, sp->length);
 
-	daisy_spi_write();
+	daisy_spi_write(sp);
+	free(sp);
 
 	return 0;
 }
@@ -507,7 +521,13 @@ static int send_large_packet(int argc, char **argv)
 		return 1;
 	}
 
-	int16_t *id = (int16_t *)&RECV.body[0];
+	spi_packet_t *sp = malloc(sizeof(spi_packet_t));
+	if (!sp) {
+		printf("Not enough memory\n");
+		return 1;
+	}
+
+	int16_t *id = (int16_t *)&sp->body[0];
 	*id = _id;
 
 	uint16_t len = 4096;
@@ -515,24 +535,27 @@ static int send_large_packet(int argc, char **argv)
 		len = strtoul(argv[2], 0, 10);
 		if (len > 4096) {
 			printf("Out of range.\n");
+			free(sp);
 			return 1;
 		}
 		if (len % 4) {
 			printf("Length must be 4byte aligned\n");
+			free(sp);
 			return 1;
 		}
 	}
 
-	uint16_t *pos = (uint16_t *)&RECV.body[2];
+	uint16_t *pos = (uint16_t *)&sp->body[2];
 	for (unsigned i=0; i<(len/2) - 1 /* exclude id */; i++) {
 		pos[i] = i;
 	}
 
-	memcpy(&RECV.magic, protocol_magic1, 4);
-	RECV.length = len;
-	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
+	memcpy(sp->magic, protocol_magic1, 4);
+	sp->length = len;
+	sp->csum = crc16_ccitt_calc(sp->body, sp->length);
 
-	daisy_spi_write();
+	daisy_spi_write(sp);
+	free(sp);
 
 	return 0;
 }
@@ -545,15 +568,21 @@ static int send_enum_packet(int argc, char **argv)
 
 	axio_id = 0; // set master ID is zero.
 
-	int16_t *id = (int16_t *)&RECV.body;
+	spi_packet_t *sp = malloc(sizeof(spi_packet_t));
+	if (!sp) {
+		printf("Not enough memory\n");
+		return 1;
+	}
+	int16_t *id = (int16_t *)&sp->body[0];
 	id[0] = 1; /* set next id = 1 */
 	id[1] = 0; /* fill 4 byte */
 
-	memcpy(&RECV.magic, protocol_magic2, 4);
-	RECV.length = 4;
-	RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
+	memcpy(sp->magic, protocol_magic2, 4);
+	sp->length = 4;
+	sp->csum = crc16_ccitt_calc(sp->body, sp->length);
 
-	daisy_spi_write();
+	daisy_spi_write(sp);
+	free(sp);
 
 	return 0;
 }
@@ -697,6 +726,10 @@ int main(void)
 		printf("thread create failed\n");
 		return 1;
 	}
+
+	recv_init();
+	RECV.state = 0;
+	RECV.crc_error = 0;
 
 	daisy_spi_init();
 
