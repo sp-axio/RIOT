@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include "isrpipe.h"
 
 #ifdef MODULE_OD
 #include "od.h"
@@ -24,37 +26,19 @@
 #include "shell.h"
 #include "periph/spi.h"
 
-#define DBG_BIT_SPI        (1<<0)
+#define DBG_BIT_ISR        (1<<0)
 #define DBG_BIT_SPI_THREAD (1<<1)
-#define DBG_BIT_PREPROCESS (1<<2)
-#define DBG_BIT_PKT_THREAD (1<<3)
+#define DBG_BIT_PKT_THREAD (1<<2)
+#define DBG_BIT_USER       (1<<3)
+#define DBG_BIT_ALL (0x1f)
 
-//#define DBG_FLAG (DBG_BIT_PKT_THREAD | DBG_BIT_PREPROCESS | DBG_BIT_SPI_THREAD | DBG_BIT_SPI)
-//#define DBG_FLAG (DBG_BIT_PKT_THREAD | DBG_BIT_PREPROCESS | DBG_BIT_SPI_THREAD)
-#define DBG_FLAG (DBG_BIT_PKT_THREAD | DBG_BIT_PREPROCESS)
-
-#if DBG_FLAG == 0
-#define dprintf(f,fmt...)
-#else
-#define dprintf(f,fmt...) do { if(DBG_FLAG&f) printf(fmt); } while(0);
-#endif
+static uint32_t dbgmsg = (DBG_BIT_PKT_THREAD | DBG_BIT_SPI_THREAD);
 
 static const char protocol_magic1[] = "Axio";
 static const char protocol_magic2[] = "Enum";
 static const char protocol_magic3[] = "Resp";
 
 static int16_t axio_id = -1;
-
-enum {
-	RECV_ERROR = 0,
-	RECV_INVALID_HEADER,
-	RECV_INVALID_LENGTH,
-	RECV_INVALID_ALIGN,
-	RECV_COMPLETE,
-	RECV_IN_PROGRESS,
-	RECV_TIMEOUT,
-	RECV_SPI_MSG_MAX
-};
 
 enum {
 	RECV_CTRL_PKT = 0,
@@ -72,21 +56,52 @@ typedef struct recv_t {
 	int state;
 	uint32_t *pos;
 	uint16_t remainder;
-	xtimer_t timer;
-	msg_t msg;
-	kernel_pid_t pid;
-	uint32_t msg_cnt[RECV_SPI_MSG_MAX];
 	uint32_t crc_error;
 } recv_t;
 
 static recv_t RECV = { .state = 0, };
 
+static kernel_pid_t spi_proc_pid = 0;
 static kernel_pid_t pkt_proc_pid = 0;
+
+static char _rx_buf_mem[1024];
+static isrpipe_t spi_isrpipe = ISRPIPE_INIT(_rx_buf_mem);
+
+static uint32_t master_sleep = 150; // experimentally 90 ~ 100 usec is safe. added 50% as margin.
+
+int tprintf(const char *fmt,...)
+{
+	char buffer[256];
+	va_list args;
+	int len;
+	if (irq_is_in()) {
+		if (!(dbgmsg & DBG_BIT_ISR))
+			return 0;
+		len = sprintf(buffer, "[isr] ");
+	}
+	else if (sched_active_thread->pid == spi_proc_pid) {
+		if (!(dbgmsg & DBG_BIT_SPI_THREAD))
+			return 0;
+		len = sprintf(buffer, "[spi] ");
+	}
+	else if (sched_active_thread->pid == pkt_proc_pid) {
+		if (!(dbgmsg & DBG_BIT_PKT_THREAD))
+			return 0;
+		len = sprintf(buffer, "[pkt] ");
+	}
+	else {
+		len = sprintf(buffer, "[%3d] ", sched_active_thread->pid);
+	}
+	va_start(args, fmt);
+	len += vsnprintf(buffer + len, sizeof(buffer) - len, fmt, args);
+	va_end(args);
+	puts(buffer);
+	return len+1;
+}
 
 static void recv_init(void)
 {
-	xtimer_remove(&RECV.timer);
-	memset(&RECV, 0, (uint32_t)&RECV.pid - (uint32_t)&RECV);
+	memset(&RECV, 0, sizeof(recv_t) - sizeof(uint32_t));
 }
 
 typedef struct {
@@ -121,31 +136,28 @@ static void daisy_spi_init(void)
 
 static void daisy_spi_raw_write(uint8_t *buffer, size_t size)
 {
-#ifdef MODULE_OD
-	if (DBG_FLAG&DBG_BIT_SPI)
-	{
-		od(buffer, size, OD_WIDTH_DEFAULT, OD_FLAGS_BYTES_HEX | OD_FLAGS_LENGTH_CHAR);
-	}
-#endif
 	assert(!(size%4));
 
 	int n = size/4;
 	uint32_t *ptr = (uint32_t *)buffer;
 	uint32_t recv;
-	uint32_t prev;
+	//uint32_t prev;
 
 	spi_get(master);
 
 	for (int i = 0; i < n; i++) {
 		recv = 0;
 		spi_io(master, &ptr[i], &recv, 4);
+#if 0
+		//printf("[%4d] send %08lx, miso: %08lx\n", i, ptr[i], recv);
 		if (i>2) {
 			if (prev + 1 != recv) {
 				printf("maybe packet lost! idx:%d, recv: %lx, %08lx\n", i, recv, ptr[i]);
 			}
 		}
-		prev = recv;
-		xtimer_spin(xtimer_ticks_from_usec(300));
+		//prev = recv;
+#endif
+		xtimer_spin(xtimer_ticks_from_usec(master_sleep));
 	}
 
 	spi_put(master);
@@ -158,10 +170,9 @@ static void daisy_spi_write(void)
 
 void spi_isr_callback(int bus)
 {
-#define send_message(t) do { msg_t msg; msg.type = t; msg_send(&msg, RECV.pid); } while(0);
 	static uint32_t recv_counter = 0;
 
-	dprintf(DBG_BIT_SPI, "spi%d callback\n", bus);
+	tprintf("spi%d callback", bus);
 
 	uint8_t buffer[4] = { 0xff, 0xff, 0xff, 0xff };
 
@@ -171,74 +182,29 @@ void spi_isr_callback(int bus)
 	spi_io(slave, (void *)&recv_counter, (void *)&buffer, sizeof(buffer));
 	spi_put(slave);
 
-	dprintf(DBG_BIT_SPI, "state: %d, buffer: %02x%02x%02x%02x\n",
+	tprintf("state: %d, buffer: %02x%02x%02x%02x",
 			RECV.state, buffer[0], buffer[1], buffer[2], buffer[3]);
 
-	if (RECV.state != 0)
-	{
-		recv_counter++;
-	}
+	recv_counter++;
 
-	switch(RECV.state)
-	{
-		case 0: // check magic with network-order stream
-			if (!memcmp(&buffer, protocol_magic1, 4) ||
-					!memcmp(&buffer, protocol_magic2, 4) ||
-					!memcmp(&buffer, protocol_magic3, 4)) {
-				recv_counter = 1;
-				RECV.msg.type = RECV_TIMEOUT;
-				xtimer_set_msg(&RECV.timer, 5000000, &RECV.msg, RECV.pid);
-				memcpy(&RECV.magic, buffer, 4);
-				RECV.state++;
-			}
-			else {
-				send_message(RECV_INVALID_HEADER);
-			}
-			break;
-		case 1:
-			{
-				uint16_t *len = (uint16_t *)buffer;
-				uint16_t *crc16 = (uint16_t *)(buffer+2);
-				if (*len > sizeof(RECV.body)) {
-					send_message(RECV_INVALID_LENGTH);
-					break;
-				}
-				if (*len % 4) {
-					send_message(RECV_INVALID_ALIGN);
-					break;
-				}
-				RECV.remainder = RECV.length = *len; // excluding magic, length and csum
-				RECV.csum = *crc16;
-				RECV.pos = (uint32_t *)RECV.body;
-				RECV.state++;
-			}
-			break;
-		case 2:
-			if (RECV.remainder > 0) {
-				dprintf(DBG_BIT_SPI, "pos: %p, remaining: %u\n", RECV.pos, RECV.remainder);
-				memcpy(RECV.pos, buffer, 4);
-				RECV.pos++;
-				RECV.remainder -= 4;
-				if (RECV.remainder == 0) {
-					RECV.state++;
-					xtimer_remove(&RECV.timer);
-					dprintf(DBG_BIT_SPI, "send complete message\n");
-					send_message(RECV_COMPLETE);
-				}
-			}
-			else {
-				send_message(RECV_ERROR);
-			}
-			break;
-		default:
-			send_message(RECV_IN_PROGRESS);
+	if (tsrb_add_one(&spi_isrpipe.tsrb, buffer[0]) < 0) {
+		tprintf("tsrb full!");
 	}
+	if (tsrb_add_one(&spi_isrpipe.tsrb, buffer[1]) < 0) {
+		tprintf("tsrb full!");
+	}
+	if (tsrb_add_one(&spi_isrpipe.tsrb, buffer[2]) < 0) {
+		tprintf("tsrb full!");
+	}
+	if (tsrb_add_one(&spi_isrpipe.tsrb, buffer[3]) < 0) {
+		tprintf("tsrb full!");
+	}
+	mutex_unlock(&spi_isrpipe.mutex);
 }
 
 static char _spi_stack[1024];
 static char _pkt_stack[1024];
 
-static msg_t spi_msg[8];
 static msg_t pkt_msg[8];
 
 static void send_to_pkt_process(uint16_t mtype)
@@ -246,13 +212,13 @@ static void send_to_pkt_process(uint16_t mtype)
 	msg_t msg;
 	void *pkt = malloc(RECV.length);
 	if (!pkt) {
-		dprintf(DBG_BIT_PREPROCESS, "Not enough memory\n");
+		tprintf("Not enough memory");
 	}
 	memcpy(pkt, RECV.body, RECV.length);
 	msg.type = mtype;
 	msg.content.ptr = pkt;
 	if (msg_send(&msg, pkt_proc_pid) <= 0) {
-		dprintf(DBG_BIT_PREPROCESS, "Can't send message to pkt process\n");
+		tprintf("Can't send message to pkt process");
 		free(pkt);
 	}
 }
@@ -262,118 +228,58 @@ static void preprocess_pkt(void)
 	int16_t *id = (int16_t *)RECV.body;
 
 	if (!memcmp(&RECV.magic, protocol_magic2, 4)) {
-		dprintf(DBG_BIT_PREPROCESS, "enumeration packet has been arrived\n");
+		tprintf("enumeration packet has been arrived");
 		if (*id > 0)
 		{
 			if (axio_id == 0) {
-				dprintf(DBG_BIT_PREPROCESS, "enumeration packet has come back. last id is %d\n", *id);
+				tprintf("enumeration packet has come back. last id is %d", *id);
 				return;
 			}
 			else if (axio_id < 0) {
 				axio_id = *id;
-				dprintf(DBG_BIT_PREPROCESS, "set my ID = %d\n", axio_id);
+				tprintf("set my ID = %d", axio_id);
 				(*id)++; // increase ID for next Axio
 				RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
 			}
 			else {
 				/* unreachable code normally */
-				dprintf(DBG_BIT_PREPROCESS, "my ID (%d) is already set, passing this packet to next\n", axio_id);
+				tprintf("my ID (%d) is already set, passing this packet to next", axio_id);
 				*id = axio_id + 1;
 				RECV.csum = crc16_ccitt_calc(RECV.body, RECV.length);
 			}
 			goto send_to_next;
 		}
-		dprintf(DBG_BIT_PREPROCESS, "Invalid ID is present, consume this packet\n");
+		tprintf("Invalid ID is present, consume this packet");
 		return;
 	}
 	else if (!memcmp(&RECV.magic, protocol_magic3, 4)) {
 		if (axio_id > 0) {
-			dprintf(DBG_BIT_PREPROCESS, "Resp packet has been arrived, passing this packet to next\n");
+			tprintf("Resp packet has been arrived, passing this packet to next");
 			goto send_to_next;
 		}
-		dprintf(DBG_BIT_PREPROCESS, "Resp packet has been arrived, consume this packet, Length: %u\n", RECV.length);
+		tprintf("Resp packet has been arrived, consume this packet, Length: %u", RECV.length);
 		send_to_pkt_process(RECV_RESP_PKT);
 		return;
 	}
 	else if (!memcmp(&RECV.magic, protocol_magic1, 4)) {
 		if (axio_id < 0) {
-			dprintf(DBG_BIT_PREPROCESS, "my ID was not set, consume this packet\n");
+			tprintf("my ID was not set, consume this packet");
 			return;
 		}
 		else if (*id != axio_id) {
-			dprintf(DBG_BIT_PREPROCESS, "Packet ID is %u, passing packet to next axio\n", *id);
+			tprintf("Packet ID is %u, passing packet to next axio", *id);
 			goto send_to_next;
 		}
-		dprintf(DBG_BIT_PREPROCESS, "Control packet (%u) has been arrived, Length: %u\n", *id, RECV.length);
+		tprintf("Control packet (%u) has been arrived, Length: %u", *id, RECV.length);
 		send_to_pkt_process(RECV_CTRL_PKT);
 		return;
 	}
 
-	dprintf(DBG_BIT_PREPROCESS, "Unknown packet has been arrived, drop this packet\n");
+	tprintf("Unknown packet has been arrived, drop this packet");
 	return;
 
 send_to_next:
 	daisy_spi_write();
-}
-
-static void process_spi(msg_t *msg)
-{
-	dprintf(DBG_BIT_SPI_THREAD, "spi thread debugging: mtype: %d\n", msg->type);
-	if (msg->type < RECV_SPI_MSG_MAX)
-	{
-		RECV.msg_cnt[msg->type]++;
-	}
-	switch (msg->type)
-	{
-		case RECV_ERROR:
-			dprintf(DBG_BIT_SPI_THREAD, "recv error\n");
-			recv_init();
-			break;
-		case RECV_INVALID_HEADER:
-			dprintf(DBG_BIT_SPI_THREAD, "invalid header\n");
-			recv_init();
-			break;
-		case RECV_INVALID_LENGTH:
-			dprintf(DBG_BIT_SPI_THREAD, "too long packet, aborting\n");
-			recv_init();
-			break;
-		case RECV_INVALID_ALIGN:
-			dprintf(DBG_BIT_SPI_THREAD, "length must be 4byte-aligned, aborting\n");
-			recv_init();
-			break;
-		case RECV_COMPLETE:
-			{
-				dprintf(DBG_BIT_SPI_THREAD, "packet processing has started\n");
-#ifdef MODULE_OD
-				if (DBG_FLAG&DBG_BIT_SPI_THREAD)
-				{ // dump
-					od(RECV.body, RECV.length, OD_WIDTH_DEFAULT, OD_FLAGS_BYTES_HEX | OD_FLAGS_LENGTH_CHAR);
-				}
-#endif
-				uint16_t crc16 = crc16_ccitt_calc(RECV.body, RECV.length);
-				if (RECV.csum == crc16)
-				{ // check csum
-					preprocess_pkt();
-				}
-				else
-				{
-					RECV.crc_error++;
-					printf("crc is invalid (%x) expected (%x) length (%u)\n", RECV.csum, crc16, RECV.length);
-				}
-				// finish
-				recv_init();
-			}
-			break;
-		case RECV_IN_PROGRESS:
-			dprintf(DBG_BIT_SPI_THREAD, "the previous packet is processing now\n");
-			break;
-		case RECV_TIMEOUT:
-			printf("timeout, goto initial state\n");
-			recv_init();
-			break;
-		default:
-			printf("spi thread: unknown message(%d)\n", msg->type);
-	}
 }
 
 static void process_pkt(msg_t *msg)
@@ -381,7 +287,7 @@ static void process_pkt(msg_t *msg)
 	void do_resp(void *pkt);
 	void do_job(void *pkt);
 	void *pkt = msg->content.ptr;
-	dprintf(DBG_BIT_PKT_THREAD, "pkt thread debugging: mtype: %d\n", msg->type);
+	tprintf("pkt thread debugging: mtype: %d", msg->type);
 	switch (msg->type)
 	{
 		case RECV_RESP_PKT:
@@ -397,23 +303,102 @@ static void process_pkt(msg_t *msg)
 			}
 			break;
 		default:
-			dprintf(DBG_BIT_PKT_THREAD, "pkt thread debugging: mtype: %d\n", msg->type);
+			tprintf("pkt thread debugging: mtype: %d", msg->type);
 	}
 }
 
 static void *process_spi_recv(void *arg)
 {
-	msg_init_queue(spi_msg, 8);
-	msg_t spi_msg;
+	int res;
+	char buffer[4];
 
-	while(1)
-	{
-		msg_receive(&spi_msg);
-		process_spi(&spi_msg);
+	while(1) {
+		res = isrpipe_read_timeout(&spi_isrpipe, buffer, sizeof(buffer), 5000000);
+		if (res < 0) {
+			if (RECV.state > 0) {
+				tprintf("recv timeout!!");
+				recv_init();
+			}
+			continue;
+		}
+		else if (res != 4) {
+			tprintf("recv error!!");
+			recv_init();
+			continue;
+		}
+
+		switch(RECV.state)
+		{
+			case 0: // check magic with network-order stream
+				if (!memcmp(&buffer, protocol_magic1, 4) ||
+						!memcmp(&buffer, protocol_magic2, 4) ||
+						!memcmp(&buffer, protocol_magic3, 4)) {
+					memcpy(&RECV.magic, buffer, 4);
+					RECV.state++;
+				}
+				else {
+					tprintf("invalid header");
+					recv_init();
+				}
+				break;
+			case 1:
+				{
+					uint16_t *len = (uint16_t *)buffer;
+					uint16_t *crc16 = (uint16_t *)(buffer+2);
+					if (*len > sizeof(RECV.body)) {
+						tprintf("too long packet, aborting");
+						recv_init();
+						break;
+					}
+					if (*len % 4) {
+						tprintf("length must be 4byte-aligned, aborting");
+						recv_init();
+						break;
+					}
+					RECV.remainder = RECV.length = *len; // excluding magic, length and csum
+					RECV.csum = *crc16;
+					RECV.pos = (uint32_t *)RECV.body;
+					RECV.state++;
+				}
+				break;
+			case 2:
+				if (RECV.remainder > 0) {
+					//tprintf("pos: %p, remaining: %u", RECV.pos, RECV.remainder);
+					memcpy(RECV.pos, buffer, 4);
+					RECV.pos++;
+					RECV.remainder -= 4;
+					if (RECV.remainder == 0) {
+						RECV.state++;
+						tprintf("packet processing has started");
+#ifdef MODULE_OD
+						if (dbgmsg&DBG_BIT_USER)
+						{ // dump
+							od(RECV.body, RECV.length, OD_WIDTH_DEFAULT, OD_FLAGS_BYTES_HEX | OD_FLAGS_LENGTH_CHAR);
+						}
+#endif
+						uint16_t crc16 = crc16_ccitt_calc(RECV.body, RECV.length);
+						if (RECV.csum == crc16)
+						{ // check csum
+							preprocess_pkt();
+						}
+						else
+						{
+							RECV.crc_error++;
+							tprintf("crc is invalid (%x) expected (%x) length (%u)", RECV.csum, crc16, RECV.length);
+							od(&RECV, 256, OD_WIDTH_DEFAULT, OD_FLAGS_BYTES_HEX | OD_FLAGS_LENGTH_CHAR);
+						}
+						// finish
+						recv_init();
+					}
+				}
+				break;
+			default:
+				tprintf("the previous packet is processing now");
+		}
 	}
-
 	return NULL;
 }
+
 
 static void *process_pkt_recv(void *arg)
 {
@@ -641,11 +626,29 @@ static int dbginfo(int argc, char **argv)
 	printf("csum          0x%04x\n", RECV.csum);
 	printf("body addr     %p\n",     RECV.body);
 	printf("crc error     %lu\n",    RECV.crc_error);
-	printf("\nMessage Counter\n");
-	for (int i = 0; i < RECV_SPI_MSG_MAX; i++)
-	{
-		printf("[%d] %lu\n", i, RECV.msg_cnt[i]);
+	return 0;
+}
+
+static int set_thread_message(int argc, char *argv[])
+{
+	if (argc == 2) {
+		uint32_t tmp = strtoul(argv[1], 0, 16);
+		if (tmp > DBG_BIT_ALL) {
+			printf("Out of range.\n");
+			return 1;
+		 }
+		dbgmsg = tmp;;
 	}
+	printf("current thread message: %lx\n", dbgmsg);
+	return 0;
+}
+
+static int set_spi_gap(int argc, char *argv[])
+{
+	if(argc == 2) {
+		master_sleep = atoi(argv[1]);
+	}
+	printf("gap: %lu us\n", master_sleep);
 	return 0;
 }
 
@@ -658,13 +661,15 @@ static const shell_command_t shell_commands[] = {
 	 * sendh 4178696f1000b497020012345678abcdef01234567890abc
 	 */
 	{ "getid", "get my ID", getid },
-	{ "send", "send data packet", send_data_packet },
+	{ "send",  "send data packet", send_data_packet },
 	{ "send2", "send large data", send_large_packet },
-	{ "enum", "send enum packet", send_enum_packet },
+	{ "enum",  "send enum packet", send_enum_packet },
 	{ "sendh", "(test) send hex", sendh },
 	{ "senda", "(test) send ascii", senda },
 	{ "crc16", "(test) calc crc", crc16ccitt },
 	{ "dbg",   "(test) debug info", dbginfo },
+	{ "tmsg",  "(test) set thread message", set_thread_message },
+	{ "sleep", "(test) set spi gap", set_spi_gap },
 	{ NULL, NULL, NULL }
 };
 
@@ -675,11 +680,11 @@ int main(void)
     printf("You are running RIOT on a(n) %s board.\n", RIOT_BOARD);
     printf("This board features a(n) %s MCU.\n", RIOT_MCU);
 
-	RECV.pid = thread_create(_spi_stack, sizeof(_spi_stack),
-			THREAD_PRIORITY_MAIN - 2, THREAD_CREATE_WOUT_YIELD | THREAD_CREATE_STACKTEST,
+	spi_proc_pid = thread_create(_spi_stack, sizeof(_spi_stack),
+			1, THREAD_CREATE_WOUT_YIELD | THREAD_CREATE_STACKTEST,
 			process_spi_recv, NULL, "spi");
 
-	if (RECV.pid <= 0) {
+	if (spi_proc_pid <= 0) {
 		printf("thread create failed\n");
 		return 1;
 	}

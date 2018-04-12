@@ -18,6 +18,8 @@ typedef struct {
 	uint32_t baz;
 } resp_packet_t; // size should be less than RECV.body
 
+extern int tprintf(const char *fmt,...);
+
 void send_response(uint8_t *buffer, size_t size);
 
 void do_job(void *pkt)
@@ -25,7 +27,7 @@ void do_job(void *pkt)
 	ctrl_packet_t *ctl = (ctrl_packet_t *)pkt;
 	resp_packet_t resp;
 #if 1
-	printf("pkt id: %u\n", ctl->id);
+	tprintf("pkt id: %u", ctl->id);
 #ifdef MODULE_OD
 	od(ctl, sizeof(ctrl_packet_t), OD_WIDTH_DEFAULT, OD_FLAGS_BYTES_HEX | OD_FLAGS_LENGTH_CHAR);
 #endif
@@ -33,7 +35,7 @@ void do_job(void *pkt)
 	resp.foo = 0x1234;
 	resp.bar = 0xdeadbeef;
 	resp.baz = 0x05050a0a;
-	printf("send response\n");
+	tprintf("send response");
 	send_response((uint8_t *)&resp, sizeof(resp));
 #else
 	/*
@@ -46,7 +48,7 @@ void do_resp(void *pkt)
 {
 	resp_packet_t *resp = (resp_packet_t *)pkt;
 #if 1
-	printf("pkt comes from : %u, %x, %08lx, %08lx\n", resp->id, resp->foo, resp->bar, resp->baz);
+	tprintf("pkt comes from : %u, %x, %08lx, %08lx", resp->id, resp->foo, resp->bar, resp->baz);
 #ifdef MODULE_OD
 	od(resp, sizeof(resp_packet_t), OD_WIDTH_DEFAULT, OD_FLAGS_BYTES_HEX | OD_FLAGS_LENGTH_CHAR);
 #endif
